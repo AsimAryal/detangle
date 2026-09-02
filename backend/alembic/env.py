@@ -8,7 +8,7 @@ from alembic import context
 from app.models import Base
 
 config = context.config
-if config.config_file_name:
+if config.config_file_name and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 target_metadata = Base.metadata
 

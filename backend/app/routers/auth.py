@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -17,6 +18,7 @@ from app.security import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 def auth_response(user: User) -> AuthOut:
@@ -37,6 +39,7 @@ async def login(body: LoginIn, request: Request, response: Response, db: DbSessi
     password_valid = verify_password(body.password, candidate_hash)
     if user is None or not password_valid or not user.active:
         request.app.state.login_throttle.fail(throttle_key)
+        logger.warning("Login rejected username=%s ip=%s", username, ip_address)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password"
         )
@@ -55,6 +58,7 @@ async def login(body: LoginIn, request: Request, response: Response, db: DbSessi
     db.add(auth_session)
     await db.commit()
     await db.refresh(user)
+    logger.info("Login succeeded username=%s ip=%s", user.username, ip_address)
     response.set_cookie(
         key=request.app.state.settings.session_cookie_name,
         value=token,

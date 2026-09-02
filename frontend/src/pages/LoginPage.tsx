@@ -1,8 +1,8 @@
-import { Headphones, LockKeyhole, Waves } from 'lucide-react'
+import { AlertCircle, Headphones, LockKeyhole, Waves } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { Button, Field, getErrorMessage, Logo } from '../components/ui'
+import { Button, Field, getErrorMessage, Logo, PasswordField } from '../components/ui'
 
 export function LoginPage() {
   const { user, login } = useAuth()
@@ -77,17 +77,27 @@ export function LoginPage() {
               autoComplete="username"
               autoFocus
               value={username}
-              onChange={(event) => setUsername(event.target.value)}
+              onChange={(event) => {
+                setUsername(event.target.value)
+                setError('')
+              }}
             />
-            <Field
+            <PasswordField
               label="Password"
               name="password"
-              type="password"
               autoComplete="current-password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value)
+                setError('')
+              }}
             />
-            {error && <div className="form-error" role="alert">{error}</div>}
+            {error && (
+              <div className="form-error login-form-error" role="alert" aria-live="assertive">
+                <AlertCircle />
+                <span>{error}</span>
+              </div>
+            )}
             <Button type="submit" loading={loading} icon={LockKeyhole}>
               Sign in
             </Button>

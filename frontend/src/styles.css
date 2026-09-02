@@ -322,6 +322,41 @@ select {
   color: #f5aaa4;
 }
 
+.password-field {
+  position: relative;
+}
+
+.password-field .field input {
+  padding-right: 48px;
+}
+
+.password-visibility {
+  position: absolute;
+  top: 27px;
+  right: 7px;
+  display: grid;
+  width: 31px;
+  height: 31px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.password-visibility:hover,
+.password-visibility:focus-visible {
+  color: var(--primary-strong);
+  background: rgba(73, 214, 194, .08);
+}
+
+.password-visibility svg {
+  width: 16px;
+  height: 16px;
+}
+
 .form-error {
   padding: 10px 12px;
   border: 1px solid rgba(240, 127, 119, .28);
@@ -1027,6 +1062,19 @@ select {
 .login-card form .button {
   width: 100%;
   margin-top: 5px;
+}
+
+.login-form-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.login-form-error svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .login-help {

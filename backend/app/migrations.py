@@ -10,6 +10,7 @@ def alembic_config(settings: Settings) -> Config:
     path = Path(__file__).resolve().parents[1] / "alembic.ini"
     config = Config(path)
     config.set_main_option("sqlalchemy.url", settings.database_url)
+    config.attributes["configure_logger"] = False
     return config
 
 

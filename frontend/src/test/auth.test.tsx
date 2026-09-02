@@ -57,11 +57,16 @@ describe('authentication flow', () => {
   })
 
   it('signs in and opens the protected workspace', async () => {
+    let signedIn = false
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input)
         if (path === '/api/auth/login' && init?.method === 'POST') {
+          signedIn = true
+          return response({ user, show_password_reminder: false })
+        }
+        if (path === '/api/auth/me' && signedIn) {
           return response({ user, show_password_reminder: false })
         }
         return response({ detail: 'Unauthorized' }, 401)
@@ -79,6 +84,55 @@ describe('authentication flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
     expect(await screen.findByRole('heading', { name: 'Private workspace' })).toBeInTheDocument()
+  })
+
+  it('shows login errors and allows the password to be revealed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === '/api/auth/login'
+          ? response({ detail: 'Invalid username or password' }, 401)
+          : response({ detail: 'Unauthorized' }, 401),
+      ),
+    )
+    renderAuth('/login')
+
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    const password = screen.getByLabelText('Password')
+    expect(password).toHaveAttribute('type', 'password')
+    fireEvent.click(screen.getByRole('button', { name: 'Show password' }))
+    expect(password).toHaveAttribute('type', 'text')
+
+    fireEvent.change(screen.getByLabelText('Username'), {
+      target: { value: 'listener' },
+    })
+    fireEvent.change(password, { target: { value: 'wrong-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(await screen.findByText('Invalid username or password')).toBeInTheDocument()
+  })
+
+  it('explains when a secure session cookie is blocked', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === '/api/auth/login'
+          ? response({ user, show_password_reminder: false })
+          : response({ detail: 'Not authenticated' }, 401),
+      ),
+    )
+    renderAuth('/login')
+
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    fireEvent.change(screen.getByLabelText('Username'), {
+      target: { value: 'listener' },
+    })
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'correct-password' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(
+      await screen.findByText(/session cookie was blocked/i),
+    ).toBeInTheDocument()
   })
 
   it('shows and acknowledges the optional password reminder', async () => {

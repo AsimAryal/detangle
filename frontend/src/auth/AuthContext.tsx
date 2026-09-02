@@ -9,7 +9,7 @@ import {
   type PropsWithChildren,
 } from 'react'
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { api, unauthorizedEvent } from '../lib/api'
+import { api, ApiError, unauthorizedEvent } from '../lib/api'
 import type { AuthResponse, User } from '../types'
 import { Logo, useToast } from '../components/ui'
 
@@ -70,10 +70,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
       user: auth.data?.user ?? null,
       loading: auth.isLoading,
       login: async (username, password) => {
-        const data = await api.login(username, password)
+        await api.login(username, password)
+        let verified: AuthResponse
+        try {
+          verified = await api.verifySession()
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 401) {
+            throw new Error(
+              'Your credentials were accepted, but the session cookie was blocked. Use the HTTPS tunnel, or set COOKIE_SECURE=false when signing in over LAN HTTP.',
+              { cause: error },
+            )
+          }
+          throw error
+        }
         reminded.current = false
-        setAuth(data)
-        return data.user
+        setAuth(verified)
+        return verified.user
       },
       logout: async () => {
         try {

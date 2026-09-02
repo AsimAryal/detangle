@@ -27,6 +27,7 @@ import {
   Field,
   Modal,
   PageHeader,
+  PasswordField,
   Select,
   Skeleton,
   formatBytes,
@@ -484,9 +485,8 @@ function PasswordChoice({
         <span><KeyRound /><strong>Set manually</strong><small>Use at least 12 characters and three character types.</small></span>
       </label>
       {mode === 'manual' && (
-        <Field
+        <PasswordField
           label="Password"
-          type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           autoComplete="new-password"

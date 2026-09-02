@@ -2,6 +2,8 @@ import {
   AlertCircle,
   Check,
   Copy,
+  Eye,
+  EyeOff,
   Layers3,
   LoaderCircle,
   X,
@@ -88,6 +90,24 @@ export function Field({ label, hint, error, id, className, ...props }: FieldProp
         <small className={error ? 'field-error' : undefined}>{error || hint}</small>
       )}
     </label>
+  )
+}
+
+export function PasswordField(props: Omit<FieldProps, 'type'>) {
+  const [visible, setVisible] = useState(false)
+  return (
+    <div className="password-field">
+      <Field {...props} type={visible ? 'text' : 'password'} />
+      <button
+        className="password-visibility"
+        type="button"
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        aria-pressed={visible}
+        onClick={() => setVisible((current) => !current)}
+      >
+        {visible ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+      </button>
+    </div>
   )
 }
 

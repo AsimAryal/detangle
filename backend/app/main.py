@@ -23,6 +23,8 @@ from app.security import (
     validate_display_name,
 )
 
+logger = logging.getLogger(__name__)
+
 
 async def bootstrap(app: FastAPI) -> None:
     settings: Settings = app.state.settings
@@ -56,6 +58,14 @@ async def bootstrap(app: FastAPI) -> None:
                     active=True,
                     password_reminder_seen=False,
                 )
+            )
+            logger.info(
+                "Created initial administrator username=%s",
+                normalize_username(settings.initial_admin_username),
+            )
+        elif settings.initial_admin_password is not None:
+            logger.info(
+                "Database already contains users; INITIAL_ADMIN_PASSWORD is not reapplied"
             )
         await session.commit()
 

@@ -154,6 +154,17 @@ Changing `INITIAL_ADMIN_PASSWORD` later does not reset the existing account.
 Use the Profile page or the administration panel to change passwords after
 first boot.
 
+If you are locked out, list the accounts and securely reset a password from the
+host terminal:
+
+```bash
+docker compose exec detangle detangle list-users
+docker compose exec detangle detangle reset-password --username admin
+```
+
+The reset command prompts twice without echoing the password and revokes all
+existing sessions for that account.
+
 ### 5. Build and start
 
 ```bash

@@ -1,6 +1,8 @@
 import httpx
 from conftest import TestContext, login
 
+from app.cli import reset_account_password
+
 
 async def test_auth_reminder_csrf_and_password_session_revocation(
     ctx: TestContext,
@@ -60,3 +62,16 @@ async def test_login_throttling(ctx: TestContext) -> None:
     )
     assert blocked.status_code == 429
     assert blocked.json() == {"detail": "Too many login attempts; try again later"}
+
+
+async def test_cli_password_reset_updates_existing_account(ctx: TestContext) -> None:
+    await login(ctx.client, "admin", "Initial-Admin-Password1!")
+    await reset_account_password(
+        ctx.app.state.settings,
+        "admin",
+        "Reset-Admin-Password3!",
+    )
+
+    assert (await ctx.client.get("/api/auth/me")).status_code == 401
+    reset_login = await login(ctx.client, "admin", "Reset-Admin-Password3!")
+    assert reset_login["user"]["username"] == "admin"

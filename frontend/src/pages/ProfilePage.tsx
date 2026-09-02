@@ -5,8 +5,8 @@ import { useAuth } from '../auth/AuthContext'
 import {
   Badge,
   Button,
-  Field,
   PageHeader,
+  PasswordField,
   formatDate,
   getErrorMessage,
   useToast,
@@ -101,16 +101,14 @@ export function ProfilePage() {
             </div>
           </div>
           <form onSubmit={submit} noValidate>
-            <Field
+            <PasswordField
               label="Current password"
-              type="password"
               autoComplete="current-password"
               value={current}
               onChange={(event) => setCurrent(event.target.value)}
             />
-            <Field
+            <PasswordField
               label="New password"
-              type="password"
               autoComplete="new-password"
               hint="At least 12 characters and three character types"
               value={next}
@@ -122,9 +120,8 @@ export function ProfilePage() {
                 <small>{passwordScore < 2 ? 'Needs more strength' : passwordScore < 4 ? 'Good' : 'Strong'}</small>
               </div>
             )}
-            <Field
+            <PasswordField
               label="Confirm new password"
-              type="password"
               autoComplete="new-password"
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value)}

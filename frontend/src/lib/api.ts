@@ -55,6 +55,7 @@ async function parseError(response: Response): Promise<ApiError> {
 export async function request<T>(
   path: string,
   init: RequestInit = {},
+  notifyUnauthorized = true,
 ): Promise<T> {
   const response = await fetch(path, {
     credentials: 'include',
@@ -68,7 +69,11 @@ export async function request<T>(
   })
 
   if (!response.ok) {
-    if (response.status === 401 && path !== '/api/auth/login') {
+    if (
+      response.status === 401 &&
+      path !== '/api/auth/login' &&
+      notifyUnauthorized
+    ) {
       window.dispatchEvent(new CustomEvent(unauthorizedEvent))
     }
     throw await parseError(response)
@@ -97,6 +102,7 @@ export const api = {
     }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
   me: () => request<AuthResponse>('/api/auth/me'),
+  verifySession: () => request<AuthResponse>('/api/auth/me', {}, false),
   changePassword: (current_password: string, new_password: string) =>
     request<void>('/api/auth/change-password', {
       method: 'POST',

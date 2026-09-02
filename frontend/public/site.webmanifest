@@ -1,0 +1,17 @@
+{
+  "name": "Detangle — hear the layers",
+  "short_name": "Detangle",
+  "description": "A focused workspace for separating audio into its component layers.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#071016",
+  "theme_color": "#071016",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

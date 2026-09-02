@@ -218,16 +218,11 @@ async def list_jobs(
     db: DbSession,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    owner_id: uuid.UUID | None = None,
     job_status: JobStatus | None = Query(None, alias="status"),
     source: JobSource | None = None,
     search: str | None = Query(None, max_length=200),
 ) -> JobListOut:
-    filters = []
-    if user.role != UserRole.ADMIN:
-        filters.append(Job.owner_id == user.id)
-    elif owner_id:
-        filters.append(Job.owner_id == owner_id)
+    filters = [Job.owner_id == user.id]
     if job_status:
         filters.append(Job.status == job_status)
     if source:

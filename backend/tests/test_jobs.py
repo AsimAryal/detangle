@@ -93,6 +93,10 @@ async def test_job_submission_owner_scope_and_admin_listing(ctx: TestContext) ->
         assert listing.json()["total"] == 2
         assert listing.json()["limit"] == 1
 
+    admin_workspace = await ctx.client.get("/api/jobs")
+    assert admin_workspace.status_code == 200
+    assert admin_workspace.json()["total"] == 0
+
     admin_jobs = await ctx.client.get(f"/api/admin/jobs?owner_id={user1_id}")
     assert admin_jobs.status_code == 200
     assert admin_jobs.json()["total"] == 2

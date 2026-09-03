@@ -106,12 +106,15 @@ class DemucsterClient:
         output_format: str,
         mp3_bitrate: int | None,
         stems: list[str] | None,
+        exclude_stems: list[str] | None = None,
     ) -> RemoteJob:
         data: dict[str, str] = {"model": model, "output_format": output_format}
         if mp3_bitrate is not None:
             data["mp3_bitrate"] = str(mp3_bitrate)
         if stems:
             data["stems"] = ",".join(stems)
+        if exclude_stems:
+            data["exclude_stems"] = ",".join(exclude_stems)
         response = await self._request(
             "POST",
             "/api/v1/jobs/upload",
@@ -128,12 +131,15 @@ class DemucsterClient:
         output_format: str,
         mp3_bitrate: int | None,
         stems: list[str] | None,
+        exclude_stems: list[str] | None = None,
     ) -> RemoteJob:
         options: dict[str, Any] = {"model": model, "output_format": output_format}
         if mp3_bitrate is not None:
             options["mp3_bitrate"] = mp3_bitrate
         if stems:
             options["stems"] = stems
+        if exclude_stems:
+            options["exclude_stems"] = exclude_stems
         response = await self._request(
             "POST", "/api/v1/jobs/url", json={"url": url, "options": options}
         )

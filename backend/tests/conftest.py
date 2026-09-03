@@ -18,6 +18,7 @@ class FakeDemucster:
         self.deleted: list[str] = []
         self.uploads: list[bytes] = []
         self.urls: list[str] = []
+        self.submissions: list[dict[str, object]] = []
         self.stem_content = b"ID3-detangle-test-audio"
         self.source_content = b"RIFF-detangle-test-source"
         self.counter = 0
@@ -48,6 +49,13 @@ class FakeDemucster:
             }
         ]
 
+    def _record(self, stems: list[str] | None, exclude_stems: list[str] | None) -> None:
+        # Demucster only knows the stem names its models emit; stemless mixes are
+        # requested through exclude_stems and come back with a "no_" prefix.
+        if stems and any(stem.startswith("no_") for stem in stems):
+            raise DemucsterError("Demucster could not process these options", 422)
+        self.submissions.append({"stems": stems, "exclude_stems": exclude_stems})
+
     def _new_job(self) -> RemoteJob:
         self.counter += 1
         job = RemoteJob(
@@ -70,7 +78,9 @@ class FakeDemucster:
         output_format: str,
         mp3_bitrate: int | None,
         stems: list[str] | None,
+        exclude_stems: list[str] | None = None,
     ) -> RemoteJob:
+        self._record(stems, exclude_stems)
         self.uploads.append(file.read())
         return self._new_job()
 
@@ -82,7 +92,9 @@ class FakeDemucster:
         output_format: str,
         mp3_bitrate: int | None,
         stems: list[str] | None,
+        exclude_stems: list[str] | None = None,
     ) -> RemoteJob:
+        self._record(stems, exclude_stems)
         self.urls.append(url)
         return self._new_job()
 

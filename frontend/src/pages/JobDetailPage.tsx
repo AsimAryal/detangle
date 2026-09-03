@@ -30,6 +30,7 @@ import {
   StatusBadge,
   formatBytes,
   formatDate,
+  formatStemLabel,
   useToast,
 } from '../components/ui'
 import { api } from '../lib/api'
@@ -42,7 +43,7 @@ function stemPath(jobId: string, stem: Stem, download: boolean) {
 }
 
 function stemLabel(stem: Stem) {
-  return stem.name === 'original' ? 'Original mix' : stem.name
+  return stem.display_name || formatStemLabel(stem.name)
 }
 
 function AuthenticatedAudio({ jobId, stem }: { jobId: string; stem: Stem }) {
@@ -261,44 +262,134 @@ export function JobDetailPage() {
         <div><CalendarClock /><span><small>Available until</small><strong>{formatDate(job.expires_at)}</strong></span></div>
       </section>
 
-      {job.status === 'READY' && (
-        <section className="stems-section">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">Separated layers</span>
-              <h2>Listen in isolation</h2>
+      {job.status === 'READY' && (() => {
+        const isolatedStems = job.stems.filter(
+          (stem) => stem.name !== 'original' && !stem.name.startsWith('no_')
+        )
+        const stemlessTracks = job.stems.filter((stem) => stem.name.startsWith('no_'))
+        const originalStem = job.stems.find((stem) => stem.name === 'original')
+
+        const summaryParts: string[] = []
+        if (isolatedStems.length) summaryParts.push(`${isolatedStems.length} isolated ${isolatedStems.length === 1 ? 'stem' : 'stems'}`)
+        if (stemlessTracks.length) summaryParts.push(`${stemlessTracks.length} backing ${stemlessTracks.length === 1 ? 'track' : 'tracks'}`)
+        if (originalStem) summaryParts.push('original mix')
+        const summaryBadge = summaryParts.join(' + ') || `${job.stems.length} files`
+
+        return (
+          <section className="stems-section">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Audio Layers</span>
+                <h2>Listen and download</h2>
+              </div>
+              <Badge tone="teal">{summaryBadge}</Badge>
             </div>
-            <Badge tone="teal">
-              {job.stems.filter((stem) => stem.name !== 'original').length} stems
-              {job.stems.some((stem) => stem.name === 'original') ? ' + original mix' : ''}
-            </Badge>
-          </div>
-          {job.stems.length ? (
-            <div className="stem-list">
-              {job.stems.map((stem, index) => (
-                <article className="stem-row" key={stem.name}>
-                  <span className="stem-number">{String(index + 1).padStart(2, '0')}</span>
-                  <div className="stem-name">
-                    <strong>{stemLabel(stem)}</strong>
-                    <small>{formatBytes(stem.size)}</small>
+
+            {!job.stems.length ? (
+              <ErrorState message="The job is ready but no stem files were returned." />
+            ) : (
+              <div className="stem-groups">
+                {isolatedStems.length > 0 && (
+                  <div className="stem-group">
+                    <div className="stem-group-header">
+                      <div>
+                        <h3>Isolated layers</h3>
+                        <p>Solo instruments and vocal tracks separated by Demucs.</p>
+                      </div>
+                      <Badge tone="teal">{isolatedStems.length} {isolatedStems.length === 1 ? 'stem' : 'stems'}</Badge>
+                    </div>
+                    <div className="stem-list">
+                      {isolatedStems.map((stem, index) => (
+                        <article className="stem-row" key={stem.name}>
+                          <span className="stem-number">{String(index + 1).padStart(2, '0')}</span>
+                          <div className="stem-name">
+                            <strong>{stemLabel(stem)}</strong>
+                            <small>{formatBytes(stem.size)}</small>
+                          </div>
+                          <AuthenticatedAudio key={`${job.id}-${stem.name}`} jobId={job.id} stem={stem} />
+                          <a
+                            className="icon-button"
+                            href={stemPath(job.id, stem, true)}
+                            aria-label={`Download ${stemLabel(stem)}`}
+                            title={`Download ${stemLabel(stem)}`}
+                          >
+                            <Download />
+                          </a>
+                        </article>
+                      ))}
+                    </div>
                   </div>
-                  <AuthenticatedAudio key={`${job.id}-${stem.name}`} jobId={job.id} stem={stem} />
-                  <a
-                    className="icon-button"
-                    href={stemPath(job.id, stem, true)}
-                    aria-label={`Download ${stemLabel(stem)}`}
-                    title={`Download ${stemLabel(stem)}`}
-                  >
-                    <Download />
-                  </a>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <ErrorState message="The job is ready but no stem files were returned." />
-          )}
-        </section>
-      )}
+                )}
+
+                {stemlessTracks.length > 0 && (
+                  <div className="stem-group">
+                    <div className="stem-group-header">
+                      <div>
+                        <h3>Stem-less backing tracks</h3>
+                        <p>The full mix with specific stems removed (minus-one tracks).</p>
+                      </div>
+                      <Badge tone="amber">{stemlessTracks.length} {stemlessTracks.length === 1 ? 'track' : 'tracks'}</Badge>
+                    </div>
+                    <div className="stem-list">
+                      {stemlessTracks.map((stem, index) => (
+                        <article className="stem-row" key={stem.name}>
+                          <span className="stem-number">{String(index + 1).padStart(2, '0')}</span>
+                          <div className="stem-name">
+                            <div className="stem-title-row">
+                              <strong>{stemLabel(stem)}</strong>
+                              <span className="backing-tag">Backing</span>
+                            </div>
+                            <small>{formatBytes(stem.size)}</small>
+                          </div>
+                          <AuthenticatedAudio key={`${job.id}-${stem.name}`} jobId={job.id} stem={stem} />
+                          <a
+                            className="icon-button"
+                            href={stemPath(job.id, stem, true)}
+                            aria-label={`Download ${stemLabel(stem)}`}
+                            title={`Download ${stemLabel(stem)}`}
+                          >
+                            <Download />
+                          </a>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {originalStem && (
+                  <div className="stem-group">
+                    <div className="stem-group-header">
+                      <div>
+                        <h3>Source audio</h3>
+                        <p>Complete unseparated audio track retained from source.</p>
+                      </div>
+                      <Badge tone="neutral">Source mix</Badge>
+                    </div>
+                    <div className="stem-list">
+                      <article className="stem-row" key="original">
+                        <span className="stem-number">01</span>
+                        <div className="stem-name">
+                          <strong>Original mix</strong>
+                          <small>{formatBytes(originalStem.size)}</small>
+                        </div>
+                        <AuthenticatedAudio key={`${job.id}-original`} jobId={job.id} stem={originalStem} />
+                        <a
+                          className="icon-button"
+                          href={stemPath(job.id, originalStem, true)}
+                          aria-label="Download Original mix"
+                          title="Download Original mix"
+                        >
+                          <Download />
+                        </a>
+                      </article>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )
+      })()}
 
       <ConfirmDialog
         open={confirmDelete}

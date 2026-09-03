@@ -152,6 +152,12 @@ class Archiver:
             await session.commit()
             return
 
+        # Demucster returns every stem when none were named, which happens for
+        # jobs that only asked for stemless mixes, so keep the requested subset.
+        requested = {name for name in (job.requested_stems or "").split(",") if name}
+        selected = [stem for stem in remote.stems if stem.name in requested]
+        remote_stems = selected or remote.stems
+
         target_dir = self.settings.jobs_dir / str(job.id)
         await asyncio.to_thread(target_dir.mkdir, parents=True, exist_ok=True)
         for partial in target_dir.glob("*.part"):
@@ -160,7 +166,7 @@ class Archiver:
         records: list[Stem] = []
         filenames: set[str] = set()
         try:
-            for remote_stem in remote.stems:
+            for remote_stem in remote_stems:
                 filename = safe_stem_filename(remote_stem.filename, job.output_format)
                 if filename.casefold() in filenames:
                     raise ValueError("Duplicate stem filename")

@@ -23,6 +23,7 @@ from app.security import safe_upload_filename
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 OUTPUT_FORMATS = {"mp3", "wav"}
 STEM_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+STEMLESS_PREFIX = "no_"
 
 
 def parse_stems(value: str | None) -> list[str] | None:
@@ -33,9 +34,29 @@ def parse_stems(value: str | None) -> list[str] | None:
             part.strip().casefold() for part in value.split(",") if part.strip()
         )
     )
-    if not stems or len(stems) > 16 or any(not STEM_RE.fullmatch(stem) for stem in stems):
+    if not stems or len(stems) > 32 or any(not STEM_RE.fullmatch(stem) for stem in stems):
         raise HTTPException(status_code=422, detail="Invalid stems")
     return stems
+
+
+def split_stem_selection(
+    stems: list[str] | None,
+) -> tuple[list[str] | None, list[str] | None]:
+    """Split a selection into isolated stems and the bases of stemless mixes.
+
+    Demucster takes stemless mixes through ``exclude_stems`` (excluding ``drums``
+    yields a track named ``no_drums``), so a ``no_*`` selection has to be sent
+    under that name rather than as a stem to extract.
+    """
+    if not stems:
+        return None, None
+    isolated = [stem for stem in stems if not stem.startswith(STEMLESS_PREFIX)]
+    excluded = [
+        base
+        for stem in stems
+        if stem.startswith(STEMLESS_PREFIX) and (base := stem[len(STEMLESS_PREFIX) :])
+    ]
+    return isolated or None, excluded or None
 
 
 def validate_options(output_format: str, bitrate: int | None) -> tuple[str, int | None]:
@@ -128,6 +149,7 @@ async def submit_upload(
         raise HTTPException(status_code=413, detail="Upload exceeds configured size limit")
     output_format, mp3_bitrate = validate_options(output_format, mp3_bitrate)
     selected_stems = parse_stems(stems)
+    isolated_stems, excluded_stems = split_stem_selection(selected_stems)
     model = await validate_model(request, model)
     try:
         remote = await request.app.state.demucster.submit_upload(
@@ -137,7 +159,8 @@ async def submit_upload(
             model=model,
             output_format=output_format,
             mp3_bitrate=mp3_bitrate,
-            stems=selected_stems,
+            stems=isolated_stems,
+            exclude_stems=excluded_stems,
         )
     except DemucsterError as exc:
         raise demucster_http_error(exc) from exc
@@ -175,6 +198,7 @@ async def submit_url(
     options = body.options
     output_format, bitrate = validate_options(options.output_format, options.mp3_bitrate)
     stems = parse_stems(",".join(options.stems) if options.stems else None)
+    isolated_stems, excluded_stems = split_stem_selection(stems)
     model = await validate_model(request, options.model)
     try:
         remote = await request.app.state.demucster.submit_url(
@@ -182,7 +206,8 @@ async def submit_url(
             model=model,
             output_format=output_format,
             mp3_bitrate=bitrate,
-            stems=stems,
+            stems=isolated_stems,
+            exclude_stems=excluded_stems,
         )
     except DemucsterError as exc:
         raise demucster_http_error(exc) from exc

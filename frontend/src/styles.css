@@ -1864,6 +1864,46 @@ select {
   gap: 28px;
 }
 
+.stem-selection-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.stem-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stem-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.text-link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.text-link-button:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+.sep {
+  color: var(--muted-2);
+}
+
 .stem-picker,
 .segmented {
   min-width: 0;
@@ -2344,6 +2384,58 @@ select {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.stem-groups {
+  display: grid;
+  gap: 36px;
+}
+
+.stem-group {
+  display: grid;
+  gap: 12px;
+}
+
+.stem-group-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 8px;
+}
+
+.stem-group-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.stem-group-header p {
+  margin: 3px 0 0 0;
+  font-size: 11px;
+  color: var(--muted-2);
+}
+
+.stem-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.backing-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 4px;
+  line-height: 1.2;
 }
 
 .stem-list {

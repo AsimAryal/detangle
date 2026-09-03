@@ -455,3 +455,19 @@ export function formatBytes(value?: number | null) {
 export function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'An unexpected error occurred.'
 }
+
+export function formatStemLabel(stemName: string): string {
+  if (stemName === 'original') return 'Original mix'
+  if (stemName.startsWith('no_')) {
+    const base = stemName.slice(3).toLowerCase()
+    if (base === 'drums') return 'No Drums (Drumless)'
+    if (base === 'vocals') return 'No Vocals (Karaoke)'
+    if (base === 'bass') return 'No Bass'
+    if (base === 'guitar') return 'No Guitar'
+    if (base === 'piano') return 'No Piano'
+    if (base === 'other') return 'No Other'
+    return `No ${base.charAt(0).toUpperCase() + base.slice(1)}`
+  }
+  return stemName.charAt(0).toUpperCase() + stemName.slice(1)
+}
+

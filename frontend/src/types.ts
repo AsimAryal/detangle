@@ -39,11 +39,15 @@ export interface OwnerSummary {
   display_name?: string
 }
 
+export type StemType = 'isolated' | 'stemless' | 'source'
+
 export interface Stem {
   name: string
   size: number
   media_url?: string
   download_url?: string
+  stem_type?: StemType
+  display_name?: string
 }
 
 export interface Job {

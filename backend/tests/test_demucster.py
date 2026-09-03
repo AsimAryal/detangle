@@ -85,6 +85,7 @@ async def test_url_submission_matches_demucster_contract() -> None:
         output_format="mp3",
         mp3_bitrate=320,
         stems=["vocals"],
+        exclude_stems=["drums"],
     )
     assert captured == {
         "path": "/api/v1/jobs/url",
@@ -95,6 +96,7 @@ async def test_url_submission_matches_demucster_contract() -> None:
                 "output_format": "mp3",
                 "mp3_bitrate": 320,
                 "stems": ["vocals"],
+                "exclude_stems": ["drums"],
             },
         },
     }

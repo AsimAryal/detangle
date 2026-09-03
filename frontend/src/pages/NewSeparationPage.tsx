@@ -25,6 +25,7 @@ import {
   Select,
   cn,
   formatBytes,
+  formatStemLabel,
   getErrorMessage,
   useToast,
 } from '../components/ui'
@@ -120,7 +121,9 @@ export function NewSeparationPage() {
   const selectedModel = models.data?.find(
     (model) => model.id === effectiveModelName,
   )
-  const effectiveStems = stems ?? selectedModel?.stems ?? []
+  const baseStems = selectedModel?.stems ?? []
+  const backingStems = baseStems.map((stem) => `no_${stem}`)
+  const effectiveStems = stems ?? baseStems
 
   const urlMutation = useMutation({
     mutationFn: ({ source, options }: { source: string; options: SeparationOptions }) =>
@@ -336,39 +339,99 @@ export function NewSeparationPage() {
             <div><h2>Shape the output</h2><p>Choose which layers to keep and how they’re encoded.</p></div>
           </div>
           <div className="options-grid">
-            <fieldset className="stem-picker">
-              <legend>Requested stems</legend>
-              <div>
-                {selectedModel?.stems.map((stem) => (
-                  <label key={stem}>
-                    <input
-                      type="checkbox"
-                      checked={effectiveStems.includes(stem)}
-                      onChange={(event) =>
-                        setStems((current) =>
-                          event.target.checked
-                            ? [...(current ?? effectiveStems), stem]
-                            : (current ?? effectiveStems).filter((item) => item !== stem),
-                        )
-                      }
-                    />
-                    <span><Check /></span>
-                    {stem}
-                  </label>
-                ))}
-                {tab === 'url' && (
-                  <label title="Keep the complete downloaded song alongside its stems">
-                    <input
-                      type="checkbox"
-                      checked={includeOriginal}
-                      onChange={(event) => setIncludeOriginal(event.target.checked)}
-                    />
-                    <span><Check /></span>
-                    Original mix (WAV)
-                  </label>
-                )}
+            <div className="stem-selection-panel">
+              <div className="stem-section-header">
+                <span className="eyebrow">Requested Layers</span>
+                <div className="stem-quick-actions">
+                  <button
+                    type="button"
+                    className="text-link-button"
+                    onClick={() => setStems([...baseStems])}
+                  >
+                    Isolated only
+                  </button>
+                  <span className="sep" aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    className="text-link-button"
+                    onClick={() => setStems([...backingStems])}
+                  >
+                    Backing only
+                  </button>
+                  <span className="sep" aria-hidden="true">·</span>
+                  <button
+                    type="button"
+                    className="text-link-button"
+                    onClick={() => setStems([...baseStems, ...backingStems])}
+                  >
+                    All layers
+                  </button>
+                </div>
               </div>
-            </fieldset>
+
+              <fieldset className="stem-picker">
+                <legend>Isolated stems</legend>
+                <div>
+                  {baseStems.map((stem) => (
+                    <label key={stem}>
+                      <input
+                        type="checkbox"
+                        checked={effectiveStems.includes(stem)}
+                        onChange={(event) =>
+                          setStems((current) =>
+                            event.target.checked
+                              ? [...(current ?? effectiveStems), stem]
+                              : (current ?? effectiveStems).filter((item) => item !== stem),
+                          )
+                        }
+                      />
+                      <span><Check /></span>
+                      {formatStemLabel(stem)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="stem-picker">
+                <legend>Stem-less backing tracks (Minus-one)</legend>
+                <div>
+                  {backingStems.map((stem) => (
+                    <label key={stem} title={`Backing track without ${stem.slice(3)}`}>
+                      <input
+                        type="checkbox"
+                        checked={effectiveStems.includes(stem)}
+                        onChange={(event) =>
+                          setStems((current) =>
+                            event.target.checked
+                              ? [...(current ?? effectiveStems), stem]
+                              : (current ?? effectiveStems).filter((item) => item !== stem),
+                          )
+                        }
+                      />
+                      <span><Check /></span>
+                      {formatStemLabel(stem)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              {tab === 'url' && (
+                <fieldset className="stem-picker">
+                  <legend>Source retention</legend>
+                  <div>
+                    <label title="Keep the complete downloaded song alongside its stems">
+                      <input
+                        type="checkbox"
+                        checked={includeOriginal}
+                        onChange={(event) => setIncludeOriginal(event.target.checked)}
+                      />
+                      <span><Check /></span>
+                      Original mix (WAV)
+                    </label>
+                  </div>
+                </fieldset>
+              )}
+            </div>
             <div className="encoding-options">
               <fieldset className="segmented">
                 <legend>Output format</legend>

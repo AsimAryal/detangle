@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from app.models import JobSource, JobStatus, UserRole
 from app.security import (
@@ -10,6 +10,27 @@ from app.security import (
     validate_password,
     validate_source_url,
 )
+
+
+def format_stem_label(stem_name: str) -> str:
+    if stem_name == "original":
+        return "Original mix"
+    if stem_name.startswith("no_"):
+        base = stem_name[3:].casefold()
+        if base == "drums":
+            return "No Drums (Drumless)"
+        if base == "vocals":
+            return "No Vocals (Karaoke)"
+        if base == "bass":
+            return "No Bass"
+        if base == "guitar":
+            return "No Guitar"
+        if base == "piano":
+            return "No Piano"
+        if base == "other":
+            return "No Other"
+        return f"No {base.capitalize()}"
+    return stem_name.capitalize()
 
 
 class UserSummary(BaseModel):
@@ -124,6 +145,20 @@ class StemOut(BaseModel):
     size: int = Field(validation_alias="size_bytes")
     sha256: str
     created_at: datetime
+
+    @computed_field
+    @property
+    def stem_type(self) -> str:
+        if self.name == "original":
+            return "source"
+        if self.name.startswith("no_"):
+            return "stemless"
+        return "isolated"
+
+    @computed_field
+    @property
+    def display_name(self) -> str:
+        return format_stem_label(self.name)
 
 
 class JobOut(BaseModel):

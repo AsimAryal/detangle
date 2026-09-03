@@ -120,3 +120,117 @@ async def test_url_title_edit_and_optional_original_mix(ctx: TestContext) -> Non
     )
     assert renamed.status_code == 200
     assert renamed.json()["title"] == "My custom title"
+
+
+async def test_archiving_stemless_tracks_and_metadata(ctx: TestContext) -> None:
+    await login(ctx.client, "admin", "Initial-Admin-Password1!")
+    submitted = await ctx.client.post(
+        "/api/jobs/upload",
+        data={
+            "model": "htdemucs",
+            "output_format": "mp3",
+            "mp3_bitrate": "320",
+            "stems": "drums,vocals,no_drums,no_vocals",
+        },
+        files={"file": ("song.mp3", b"source-data", "audio/mpeg")},
+    )
+    assert submitted.status_code == 201, submitted.text
+    payload = submitted.json()
+    job_id = payload["id"]
+    remote_id = payload["remote_job_id"]
+    assert ctx.demucster.submissions[-1] == {
+        "stems": ["drums", "vocals"],
+        "exclude_stems": ["drums", "vocals"],
+    }
+
+    ctx.demucster.jobs[remote_id] = RemoteJob(
+        id=remote_id,
+        status="COMPLETED",
+        progress=100,
+        error=None,
+        stems=[
+            RemoteStem(name="drums", filename="drums.mp3"),
+            RemoteStem(name="vocals", filename="vocals.mp3"),
+            RemoteStem(name="no_drums", filename="no_drums.mp3"),
+            RemoteStem(name="no_vocals", filename="no_vocals.mp3"),
+        ],
+    )
+
+    await ctx.app.state.archiver.poll_once()
+    detail = await ctx.client.get(f"/api/jobs/{job_id}")
+    assert detail.status_code == 200
+    archived = detail.json()
+    assert archived["status"] == "READY"
+    assert len(archived["stems"]) == 4
+
+    stems_by_name = {stem["name"]: stem for stem in archived["stems"]}
+    assert stems_by_name["drums"]["stem_type"] == "isolated"
+    assert stems_by_name["drums"]["display_name"] == "Drums"
+
+    assert stems_by_name["vocals"]["stem_type"] == "isolated"
+    assert stems_by_name["vocals"]["display_name"] == "Vocals"
+
+    assert stems_by_name["no_drums"]["stem_type"] == "stemless"
+    assert stems_by_name["no_drums"]["display_name"] == "No Drums (Drumless)"
+
+    assert stems_by_name["no_vocals"]["stem_type"] == "stemless"
+    assert stems_by_name["no_vocals"]["display_name"] == "No Vocals (Karaoke)"
+
+    # Test downloading an individual stemless track
+    drumless_dl = await ctx.client.get(f"/api/jobs/{job_id}/stems/no_drums?download=true")
+    assert drumless_dl.status_code == 200
+    assert drumless_dl.content == ctx.demucster.stem_content
+
+    # Test all-stems ZIP download includes both isolated and stemless tracks
+    archive_response = await ctx.client.get(f"/api/jobs/{job_id}/download-zip")
+    assert archive_response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(archive_response.content)) as archive:
+        assert set(archive.namelist()) == {
+            "drums.mp3",
+            "vocals.mp3",
+            "no_drums.mp3",
+            "no_vocals.mp3",
+        }
+
+
+async def test_backing_only_job_archives_just_the_stemless_mix(ctx: TestContext) -> None:
+    await login(ctx.client, "admin", "Initial-Admin-Password1!")
+    submitted = await ctx.client.post(
+        "/api/jobs/upload",
+        data={
+            "model": "htdemucs",
+            "output_format": "mp3",
+            "mp3_bitrate": "320",
+            "stems": "no_vocals",
+        },
+        files={"file": ("song.mp3", b"source-data", "audio/mpeg")},
+    )
+    assert submitted.status_code == 201, submitted.text
+    payload = submitted.json()
+    remote_id = payload["remote_job_id"]
+    assert ctx.demucster.submissions[-1] == {"stems": None, "exclude_stems": ["vocals"]}
+
+    # Naming no stems to extract makes Demucster return all of them alongside
+    # the stemless mix.
+    ctx.demucster.jobs[remote_id] = RemoteJob(
+        id=remote_id,
+        status="COMPLETED",
+        progress=100,
+        error=None,
+        stems=[
+            RemoteStem(name="drums", filename="drums.mp3"),
+            RemoteStem(name="bass", filename="bass.mp3"),
+            RemoteStem(name="other", filename="other.mp3"),
+            RemoteStem(name="vocals", filename="vocals.mp3"),
+            RemoteStem(name="no_vocals", filename="no_vocals.mp3"),
+        ],
+    )
+
+    await ctx.app.state.archiver.poll_once()
+    detail = await ctx.client.get(f"/api/jobs/{payload['id']}")
+    assert detail.status_code == 200
+    archived = detail.json()
+    assert archived["status"] == "READY"
+    assert [stem["name"] for stem in archived["stems"]] == ["no_vocals"]
+    assert archived["stems"][0]["display_name"] == "No Vocals (Karaoke)"
+

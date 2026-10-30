@@ -71,6 +71,50 @@ export interface Job {
   expires_at?: string | null
 }
 
+export type TranscriptionFileKind = 'musicxml' | 'midi' | 'raw_midi' | 'analysis'
+
+export interface TranscriptionFile {
+  id: string
+  kind: TranscriptionFileKind
+  filename: string
+  media_type: string
+  size: number
+  created_at: string
+}
+
+export interface TranscriptionSummary {
+  tempo_bpm: number
+  time_signature: string
+  measure_count: number
+  note_count: number
+  counts: Record<string, number>
+  duration_seconds: number
+}
+
+export interface TranscriptionOptions {
+  stem?: 'drums'
+  time_signature: 'auto' | '4/4' | '3/4' | '2/4' | '5/4' | '6/4' | '7/4'
+  grid: 'auto' | '16th' | '8th_triplet'
+  sensitivity: number
+  tempo_bpm?: number | null
+}
+
+export interface Transcription {
+  id: string
+  job_id: string
+  stem_name: string
+  model: string
+  status: JobStatus
+  progress_pct: number
+  error_message?: string | null
+  options: TranscriptionOptions
+  summary?: TranscriptionSummary | null
+  files: TranscriptionFile[]
+  created_at: string
+  updated_at: string
+  completed_at?: string | null
+}
+
 export interface Paginated<T> {
   items: T[]
   total: number
@@ -103,6 +147,14 @@ export interface SystemOverview {
   }
   dgx?: {
     status?: string
+  }
+  transcriber?: {
+    status?: string
+    detail?: string | null
+    queue?: {
+      queued?: number
+      processing?: number
+    }
   }
   archive?: {
     used_bytes?: number

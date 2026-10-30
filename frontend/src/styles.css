@@ -75,7 +75,7 @@ a {
   text-decoration: none;
 }
 
-svg {
+svg:not(.at-surface-svg) {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
@@ -3897,4 +3897,164 @@ select {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+
+/* Drum notation */
+.notation-section {
+  margin-top: 2rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.notation-section .stem-group {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.notation-options-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1rem;
+  padding: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.notation-options-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.notation-options-form select,
+.notation-options-form input {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.8);
+  color: inherit;
+}
+
+.notation-ready-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.notation-summary-strip,
+.notation-download-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.score-viewer-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.score-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.score-toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.score-speed-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.score-speed-select select {
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.85);
+  color: inherit;
+}
+
+.score-zoom-label {
+  min-width: 3rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-canvas-skeleton {
+  height: 320px;
+  border-radius: 0.75rem;
+}
+
+/* Outer frame holds padding & scroll; inner .score-canvas-surface MUST have
+   0 horizontal padding/border so AlphaTab's offsetWidth ResizeObserver does
+   not grow by padding on every render cycle. */
+.score-viewport {
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  max-height: 75vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.score-canvas-surface {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 260px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.score-canvas-surface svg,
+svg.at-surface-svg {
+  width: revert;
+  height: revert;
+  flex: none;
+  stroke-width: revert;
+  max-width: none;
+}
+
+.at-cursor-bar {
+  background: rgba(73, 214, 194, 0.18);
+}
+
+.at-cursor-beat {
+  background: #0b756b;
+  width: 3px;
+}
+
+.at-highlight * {
+  fill: #0b756b !important;
+  stroke: #0b756b !important;
 }

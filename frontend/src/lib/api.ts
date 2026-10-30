@@ -8,6 +8,9 @@ import type {
   Paginated,
   SeparationOptions,
   SystemOverview,
+  Transcription,
+  TranscriptionFileKind,
+  TranscriptionOptions,
   User,
   UserSession,
 } from '../types'
@@ -94,6 +97,15 @@ function params(values: Record<string, unknown>) {
   return query ? `?${query}` : ''
 }
 
+export function transcriptionFileUrl(
+  jobId: string,
+  transcriptionId: string,
+  kind: TranscriptionFileKind,
+  download = false,
+) {
+  return `/api/jobs/${encodeURIComponent(jobId)}/transcriptions/${encodeURIComponent(transcriptionId)}/files/${encodeURIComponent(kind)}?download=${download ? 1 : 0}`
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<AuthResponse>('/api/auth/login', {
@@ -140,6 +152,23 @@ export const api = {
     request<Job>(`/api/admin/jobs/${encodeURIComponent(id)}/retry-archive`, {
       method: 'POST',
     }),
+
+  transcriptions: async (jobId: string) => {
+    const data = await request<{ items: Transcription[] }>(
+      `/api/jobs/${encodeURIComponent(jobId)}/transcriptions`,
+    )
+    return data.items
+  },
+  createTranscription: (jobId: string, options: Partial<TranscriptionOptions> = {}) =>
+    request<Transcription>(`/api/jobs/${encodeURIComponent(jobId)}/transcriptions`, {
+      method: 'POST',
+      body: JSON.stringify(options),
+    }),
+  deleteTranscription: (jobId: string, transcriptionId: string) =>
+    request<void>(
+      `/api/jobs/${encodeURIComponent(jobId)}/transcriptions/${encodeURIComponent(transcriptionId)}`,
+      { method: 'DELETE' },
+    ),
 
   overview: () => request<SystemOverview>('/api/system/overview'),
   models: async () => {

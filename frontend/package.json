@@ -32,6 +32,8 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "@coderline/alphatab": "^1.8.4",
+    "@coderline/alphatab-vite": "^1.8.4",
     "@tanstack/react-query": "^5.102.8",
     "clsx": "^2.1.1",
     "lucide-react": "^1.39.0",

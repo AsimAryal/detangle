@@ -16,7 +16,8 @@ from starlette.responses import FileResponse
 from app.catalog import available_models
 from app.demucster import DemucsterError, RemoteJob
 from app.dependencies import CurrentUser, DbSession
-from app.models import AppSetting, Job, JobSource, JobStatus, Stem, User, UserRole
+from app.drumster import DrumsterError
+from app.models import AppSetting, Job, JobSource, JobStatus, Stem, Transcription, User, UserRole
 from app.schemas import JobListOut, JobOut, JobPatch, UrlJobIn
 from app.security import safe_upload_filename
 
@@ -324,6 +325,23 @@ async def delete_job(
         except DemucsterError as exc:
             if exc.status_code not in {404, 410}:
                 raise demucster_http_error(exc) from exc
+    remote_transcriptions = list(
+        (
+            await db.scalars(
+                select(Transcription).where(
+                    Transcription.job_id == job.id,
+                    Transcription.remote_id.is_not(None),
+                    Transcription.remote_deleted.is_(False),
+                )
+            )
+        ).all()
+    )
+    for item in remote_transcriptions:
+        if item.remote_id:
+            try:
+                await request.app.state.drumster.delete(item.remote_id)
+            except DrumsterError:
+                pass
     await request.app.state.archiver.delete_job_files(job.id)
     await db.delete(job)
     await db.commit()

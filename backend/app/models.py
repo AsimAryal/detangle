@@ -146,6 +146,9 @@ class Job(Base):
     stems: Mapped[list["Stem"]] = relationship(
         back_populates="job", cascade="all, delete-orphan", passive_deletes=True, lazy="selectin"
     )
+    transcriptions: Mapped[list["Transcription"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class Stem(Base):
@@ -165,6 +168,69 @@ class Stem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     job: Mapped[Job] = relationship(back_populates="stems")
+
+
+class Transcription(Base):
+    __tablename__ = "transcriptions"
+    __table_args__ = (Index("ix_transcriptions_status_updated", "status", "updated_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), index=True
+    )
+    stem_name: Mapped[str] = mapped_column(String(160), default="drums")
+    remote_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    model: Mapped[str] = mapped_column(String(64), default="adtof")
+    options_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[JobStatus] = mapped_column(
+        Enum(
+            JobStatus,
+            native_enum=False,
+            length=24,
+            values_callable=lambda values: [item.value for item in values],
+        ),
+        default=JobStatus.QUEUED,
+        index=True,
+    )
+    progress: Mapped[float] = mapped_column(default=0.0)
+    error: Mapped[str | None] = mapped_column(Text)
+    summary_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archive_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    remote_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    job: Mapped[Job] = relationship(back_populates="transcriptions")
+    files: Mapped[list["TranscriptionFile"]] = relationship(
+        back_populates="transcription",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+    )
+
+
+class TranscriptionFile(Base):
+    __tablename__ = "transcription_files"
+    __table_args__ = (
+        UniqueConstraint("transcription_id", "kind", name="uq_transcription_file_kind"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    transcription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("transcriptions.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32))
+    filename: Mapped[str] = mapped_column(String(255))
+    relative_path: Mapped[str] = mapped_column(String(500))
+    media_type: Mapped[str] = mapped_column(String(100))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    transcription: Mapped[Transcription] = relationship(back_populates="files")
 
 
 class AppSetting(Base):

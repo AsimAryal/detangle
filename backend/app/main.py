@@ -13,15 +13,17 @@ from app.archiver import Archiver
 from app.config import Settings, get_settings
 from app.db import Database
 from app.demucster import DemucsterClient
+from app.drumster import DrumsterClient
 from app.migrations import migrate
 from app.models import AppSetting, User, UserRole
-from app.routers import admin, auth, jobs, system
+from app.routers import admin, auth, jobs, system, transcriptions
 from app.security import (
     LoginThrottle,
     hash_password,
     normalize_username,
     validate_display_name,
 )
+from app.transcription_archiver import TranscriptionArchiver
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,7 @@ def same_origin(request: Request) -> bool:
 def create_app(
     settings: Settings | None = None,
     demucster: DemucsterClient | None = None,
+    drumster: DrumsterClient | None = None,
 ) -> FastAPI:
     configured = settings or get_settings()
     logging.basicConfig(
@@ -102,12 +105,17 @@ def create_app(
         except Exception:
             await app.state.database.close()
             await app.state.demucster.close()
+            await app.state.drumster.close()
             raise
         tasks: list[asyncio.Task] = []
         if not configured.disable_background_tasks:
             tasks = [
                 asyncio.create_task(app.state.archiver.poll_loop(), name="job-archiver"),
                 asyncio.create_task(app.state.archiver.retention_loop(), name="job-retention"),
+                asyncio.create_task(
+                    app.state.transcription_archiver.poll_loop(),
+                    name="transcription-archiver",
+                ),
             ]
         app.state.background_tasks = tasks
         try:
@@ -118,6 +126,7 @@ def create_app(
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
             await app.state.demucster.close()
+            await app.state.drumster.close()
             await app.state.database.close()
 
     app = FastAPI(
@@ -131,8 +140,12 @@ def create_app(
     app.state.settings = configured
     app.state.database = Database(configured.database_url)
     app.state.demucster = demucster or DemucsterClient(configured.demucster_url)
+    app.state.drumster = drumster or DrumsterClient(configured.drumster_url)
     app.state.archiver = Archiver(
         app.state.database.sessions, app.state.demucster, configured
+    )
+    app.state.transcription_archiver = TranscriptionArchiver(
+        app.state.database.sessions, app.state.drumster, configured
     )
     app.state.login_throttle = LoginThrottle()
 
@@ -158,7 +171,8 @@ def create_app(
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' data:; media-src 'self' blob:; "
+            "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
+            "font-src 'self' data:; worker-src 'self' blob:; "
             "style-src 'self' 'unsafe-inline'; script-src 'self'"
         )
         if request.url.path.startswith("/api"):
@@ -169,6 +183,7 @@ def create_app(
 
     app.include_router(auth.router)
     app.include_router(jobs.router)
+    app.include_router(transcriptions.router)
     app.include_router(admin.router)
     app.include_router(system.router)
 

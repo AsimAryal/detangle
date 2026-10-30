@@ -1,5 +1,7 @@
+import json
 import uuid
 from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field, field_validator
 
@@ -254,6 +256,70 @@ class UrlJobIn(BaseModel):
         return validate_source_url(value)
 
 
+class TranscriptionOptionsIn(BaseModel):
+    stem: Literal["drums"] = "drums"
+    time_signature: Literal["auto", "4/4", "3/4", "2/4", "5/4", "6/4", "7/4"] = "auto"
+    grid: Literal["auto", "16th", "8th_triplet"] = "auto"
+    sensitivity: float = Field(default=0.5, ge=0.0, le=1.0)
+    tempo_bpm: float | None = Field(default=None, ge=40.0, le=300.0)
+
+
+class TranscriptionFileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str
+    filename: str
+    media_type: str
+    size: int = Field(validation_alias="size_bytes")
+    sha256: str
+    created_at: datetime
+
+
+class TranscriptionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    job_id: uuid.UUID
+    stem_name: str
+    model: str
+    status: JobStatus
+    progress_pct: float = Field(validation_alias="progress")
+    error_message: str | None = Field(validation_alias="error")
+    options: dict[str, Any] = Field(default_factory=dict, validation_alias="options_json")
+    summary: dict[str, Any] | None = Field(default=None, validation_alias="summary_json")
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+    files: list[TranscriptionFileOut] = Field(default_factory=list)
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def parse_options(cls, value: Any) -> dict[str, Any]:
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                return parsed if isinstance(parsed, dict) else {}
+            except ValueError:
+                return {}
+        return value if isinstance(value, dict) else {}
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def parse_summary(cls, value: Any) -> dict[str, Any] | None:
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                return parsed if isinstance(parsed, dict) else None
+            except ValueError:
+                return None
+        return value if isinstance(value, dict) else None
+
+
+class TranscriptionListOut(BaseModel):
+    items: list[TranscriptionOut]
+
+
 class AppSettingsOut(BaseModel):
     retention_days: int
     delete_remote_after_archive: bool
@@ -285,6 +351,7 @@ class OverviewOut(BaseModel):
     demucster_healthy: bool
     demucster_detail: str | None
     demucster: dict[str, object] = Field(default_factory=dict)
+    transcriber: dict[str, object] = Field(default_factory=dict)
     queue: dict[str, object] = Field(default_factory=dict)
     gpu: dict[str, object] = Field(default_factory=dict)
     dgx: dict[str, object] = Field(default_factory=dict)

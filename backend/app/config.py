@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     )
 
     demucster_url: str = "http://192.168.50.93:9841"
+    drumster_url: str = "http://192.168.50.93:9842"
+    transcription_enabled: bool = True
     database_url: str = "sqlite+aiosqlite:////data/detangle.db"
     data_dir: Path = Path("/data")
     frontend_dir: Path = Path("/app/frontend")
@@ -36,7 +38,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     disable_background_tasks: bool = False
 
-    @field_validator("demucster_url")
+    @field_validator("demucster_url", "drumster_url")
     @classmethod
     def normalize_url(cls, value: str) -> str:
         return value.rstrip("/")

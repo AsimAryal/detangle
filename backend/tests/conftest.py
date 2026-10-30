@@ -9,6 +9,7 @@ import pytest
 
 from app.config import Settings
 from app.demucster import DemucsterError, RemoteJob
+from app.drumster import DrumsterError, RemoteTranscription
 from app.main import create_app
 
 
@@ -127,6 +128,86 @@ class FakeDemucster:
         )
 
 
+class FakeDrumster:
+    def __init__(self) -> None:
+        self.transcriptions: dict[str, RemoteTranscription] = {}
+        self.deleted: list[str] = []
+        self.uploads: list[bytes] = []
+        self.submissions: list[dict[str, object]] = []
+        self.artifact_content: dict[str, tuple[str, bytes]] = {
+            "musicxml": (
+                "application/vnd.recordare.musicxml+xml",
+                b'<?xml version="1.0"?><score-partwise version="4.0"/>',
+            ),
+            "midi": ("audio/midi", b"MThd-quantized-midi"),
+            "raw_midi": ("audio/midi", b"MThd-raw-midi"),
+            "analysis": ("application/json", b'{"version":1,"tempo_bpm":120.0}'),
+        }
+        self.counter = 0
+
+    async def close(self) -> None:
+        pass
+
+    async def health(self) -> tuple[bool, str | None, dict[str, object]]:
+        return (
+            True,
+            None,
+            {
+                "status": "healthy",
+                "cuda_available": True,
+                "models_loaded": True,
+                "active_jobs": 0,
+                "queued_jobs": 0,
+            },
+        )
+
+    async def submit(
+        self,
+        *,
+        file: BinaryIO,
+        filename: str,
+        content_type: str | None,
+        options: dict[str, object],
+    ) -> RemoteTranscription:
+        self.uploads.append(file.read())
+        self.submissions.append({"filename": filename, "options": dict(options)})
+        self.counter += 1
+        item = RemoteTranscription(
+            id=f"drumster-{self.counter}",
+            status="QUEUED",
+            progress=0.0,
+            error=None,
+            artifacts=[],
+            summary=None,
+            filename=filename,
+        )
+        self.transcriptions[item.id] = item
+        return item
+
+    async def get(self, remote_id: str) -> RemoteTranscription:
+        try:
+            return self.transcriptions[remote_id]
+        except KeyError as exc:
+            raise DrumsterError("Remote transcription was not found", 404) from exc
+
+    async def delete(self, remote_id: str) -> None:
+        self.deleted.append(remote_id)
+        self.transcriptions.pop(remote_id, None)
+
+    @asynccontextmanager
+    async def stream_artifact(
+        self, remote_id: str, artifact_name: str
+    ) -> AsyncIterator[httpx.Response]:
+        if artifact_name not in self.artifact_content:
+            raise DrumsterError("Unknown artifact", 404)
+        media_type, content = self.artifact_content[artifact_name]
+        yield httpx.Response(
+            200,
+            headers={"content-type": media_type},
+            content=content,
+        )
+
+
 @dataclass
 class TestContext:
     __test__ = False
@@ -134,6 +215,7 @@ class TestContext:
     client: httpx.AsyncClient
     app: object
     demucster: FakeDemucster
+    drumster: FakeDrumster
     data_dir: Path
 
 
@@ -149,8 +231,9 @@ async def ctx(tmp_path: Path) -> AsyncIterator[TestContext]:
         disable_background_tasks=True,
         cookie_secure=False,
     )
-    fake = FakeDemucster()
-    app = create_app(settings, fake)
+    fake_demucster = FakeDemucster()
+    fake_drumster = FakeDrumster()
+    app = create_app(settings, fake_demucster, fake_drumster)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
@@ -158,7 +241,13 @@ async def ctx(tmp_path: Path) -> AsyncIterator[TestContext]:
             base_url="http://testserver",
             headers={"Origin": "http://testserver"},
         ) as client:
-            yield TestContext(client=client, app=app, demucster=fake, data_dir=data_dir)
+            yield TestContext(
+                client=client,
+                app=app,
+                demucster=fake_demucster,
+                drumster=fake_drumster,
+                data_dir=data_dir,
+            )
 
 
 async def login(client: httpx.AsyncClient, username: str, password: str) -> dict:

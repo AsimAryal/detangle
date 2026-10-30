@@ -27,7 +27,10 @@ async def models(request: Request, _user: CurrentUser) -> ModelsOut:
 async def overview(
     request: Request, user: CurrentUser, db: DbSession
 ) -> OverviewOut:
-    healthy, detail, demucster = await request.app.state.demucster.health()
+    (healthy, detail, demucster), (t_healthy, t_detail, drumster) = await asyncio.gather(
+        request.app.state.demucster.health(),
+        request.app.state.drumster.health(),
+    )
     usage = await asyncio.to_thread(shutil.disk_usage, request.app.state.settings.data_dir)
     status_statement = select(Job.status, func.count()).group_by(Job.status)
     if user.role != UserRole.ADMIN:
@@ -51,6 +54,14 @@ async def overview(
         demucster_healthy=healthy,
         demucster_detail=detail,
         demucster=demucster,
+        transcriber={
+            "status": "Online" if t_healthy else "Offline",
+            "detail": t_detail,
+            "queue": {
+                "queued": int(drumster.get("queued_jobs") or 0),
+                "processing": int(drumster.get("active_jobs") or 0),
+            },
+        },
         queue={"queued": queued_jobs, "processing": active_jobs},
         gpu={
             "status": "Online" if healthy else "Offline",

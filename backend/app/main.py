@@ -14,9 +14,10 @@ from app.config import Settings, get_settings
 from app.db import Database
 from app.demucster import DemucsterClient
 from app.drumster import DrumsterClient
+from app.lyrics_archiver import LyricsArchiver
 from app.migrations import migrate
 from app.models import AppSetting, User, UserRole
-from app.routers import admin, auth, jobs, system, transcriptions
+from app.routers import admin, auth, jobs, lyrics, system, transcriptions
 from app.security import (
     LoginThrottle,
     hash_password,
@@ -84,6 +85,7 @@ def create_app(
     settings: Settings | None = None,
     demucster: DemucsterClient | None = None,
     drumster: DrumsterClient | None = None,
+    lyrics_client: DemucsterClient | None = None,
 ) -> FastAPI:
     configured = settings or get_settings()
     logging.basicConfig(
@@ -104,6 +106,8 @@ def create_app(
             await bootstrap(app)
         except Exception:
             await app.state.database.close()
+            if app.state.lyrics_client is not app.state.demucster:
+                await app.state.lyrics_client.close()
             await app.state.demucster.close()
             await app.state.drumster.close()
             raise
@@ -116,6 +120,10 @@ def create_app(
                     app.state.transcription_archiver.poll_loop(),
                     name="transcription-archiver",
                 ),
+                asyncio.create_task(
+                    app.state.lyrics_archiver.poll_loop(),
+                    name="lyrics-archiver",
+                ),
             ]
         app.state.background_tasks = tasks
         try:
@@ -125,6 +133,8 @@ def create_app(
                 task.cancel()
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
+            if app.state.lyrics_client is not app.state.demucster:
+                await app.state.lyrics_client.close()
             await app.state.demucster.close()
             await app.state.drumster.close()
             await app.state.database.close()
@@ -141,11 +151,20 @@ def create_app(
     app.state.database = Database(configured.database_url)
     app.state.demucster = demucster or DemucsterClient(configured.demucster_url)
     app.state.drumster = drumster or DrumsterClient(configured.drumster_url)
+    app.state.lyrics_client = lyrics_client or (
+        DemucsterClient(configured.lyrics_service_url)
+        if configured.lyrics_service_url
+        and configured.lyrics_service_url != configured.demucster_url
+        else app.state.demucster
+    )
     app.state.archiver = Archiver(
         app.state.database.sessions, app.state.demucster, configured
     )
     app.state.transcription_archiver = TranscriptionArchiver(
         app.state.database.sessions, app.state.drumster, configured
+    )
+    app.state.lyrics_archiver = LyricsArchiver(
+        app.state.database.sessions, app.state.lyrics_client, configured
     )
     app.state.login_throttle = LoginThrottle()
 
@@ -184,6 +203,7 @@ def create_app(
     app.include_router(auth.router)
     app.include_router(jobs.router)
     app.include_router(transcriptions.router)
+    app.include_router(lyrics.router)
     app.include_router(admin.router)
     app.include_router(system.router)
 

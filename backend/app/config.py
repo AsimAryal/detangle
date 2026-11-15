@@ -15,7 +15,9 @@ class Settings(BaseSettings):
 
     demucster_url: str = "http://192.168.50.93:9841"
     drumster_url: str = "http://192.168.50.93:9842"
+    lyrics_service_url: str | None = None
     transcription_enabled: bool = True
+    lyrics_enabled: bool = True
     database_url: str = "sqlite+aiosqlite:////data/detangle.db"
     data_dir: Path = Path("/data")
     frontend_dir: Path = Path("/app/frontend")
@@ -42,6 +44,14 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_url(cls, value: str) -> str:
         return value.rstrip("/")
+
+    @field_validator("lyrics_service_url")
+    @classmethod
+    def normalize_optional_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().rstrip("/")
+        return cleaned or None
 
     @property
     def trusted_host_list(self) -> list[str]:

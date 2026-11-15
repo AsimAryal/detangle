@@ -17,7 +17,17 @@ from app.catalog import available_models
 from app.demucster import DemucsterError, RemoteJob
 from app.dependencies import CurrentUser, DbSession
 from app.drumster import DrumsterError
-from app.models import AppSetting, Job, JobSource, JobStatus, Stem, Transcription, User, UserRole
+from app.models import (
+    AppSetting,
+    Job,
+    JobSource,
+    JobStatus,
+    LyricsExtraction,
+    Stem,
+    Transcription,
+    User,
+    UserRole,
+)
 from app.schemas import JobListOut, JobOut, JobPatch, UrlJobIn
 from app.security import safe_upload_filename
 
@@ -341,6 +351,23 @@ async def delete_job(
             try:
                 await request.app.state.drumster.delete(item.remote_id)
             except DrumsterError:
+                pass
+    remote_lyrics = list(
+        (
+            await db.scalars(
+                select(LyricsExtraction).where(
+                    LyricsExtraction.job_id == job.id,
+                    LyricsExtraction.remote_id.is_not(None),
+                    LyricsExtraction.remote_deleted.is_(False),
+                )
+            )
+        ).all()
+    )
+    for item in remote_lyrics:
+        if item.remote_id:
+            try:
+                await request.app.state.lyrics_client.delete_lyrics_job(item.remote_id)
+            except DemucsterError:
                 pass
     await request.app.state.archiver.delete_job_files(job.id)
     await db.delete(job)

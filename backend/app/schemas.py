@@ -320,6 +320,92 @@ class TranscriptionListOut(BaseModel):
     items: list[TranscriptionOut]
 
 
+def _parse_json_dict(value: Any, *, empty_as_dict: bool) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+            return {} if empty_as_dict else None
+        except ValueError:
+            return {} if empty_as_dict else None
+    if isinstance(value, dict):
+        return value
+    return {} if empty_as_dict else None
+
+
+class LyricsOptionsIn(BaseModel):
+    stem: Literal["vocals", "original"] = "vocals"
+    model: Literal["large-v3-turbo", "large-v3", "medium"] = "large-v3-turbo"
+    language: str | None = Field(default=None, max_length=16)
+    reference_lyrics: str | None = Field(default=None, max_length=50_000)
+    use_llm_cleanup: bool = True
+
+    @field_validator("language")
+    @classmethod
+    def clean_language(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().lower()
+        if not cleaned or cleaned == "auto":
+            return None
+        if not cleaned.isalpha() or not 2 <= len(cleaned) <= 8:
+            raise ValueError("Language must be an ISO code such as 'en' or 'es'")
+        return cleaned
+
+    @field_validator("reference_lyrics")
+    @classmethod
+    def clean_reference(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class LyricsFileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str
+    filename: str
+    media_type: str
+    size: int = Field(validation_alias="size_bytes")
+    sha256: str
+    created_at: datetime
+
+
+class LyricsExtractionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    job_id: uuid.UUID
+    stem_name: str
+    model: str
+    status: JobStatus
+    progress_pct: float = Field(validation_alias="progress")
+    error_message: str | None = Field(validation_alias="error")
+    options: dict[str, Any] = Field(default_factory=dict, validation_alias="options_json")
+    summary: dict[str, Any] | None = Field(default=None, validation_alias="summary_json")
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+    files: list[LyricsFileOut] = Field(default_factory=list)
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def parse_options(cls, value: Any) -> dict[str, Any]:
+        return _parse_json_dict(value, empty_as_dict=True) or {}
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def parse_summary(cls, value: Any) -> dict[str, Any] | None:
+        return _parse_json_dict(value, empty_as_dict=False)
+
+
+class LyricsExtractionListOut(BaseModel):
+    items: list[LyricsExtractionOut]
+
+
 class AppSettingsOut(BaseModel):
     retention_days: int
     delete_remote_after_archive: bool
@@ -352,6 +438,7 @@ class OverviewOut(BaseModel):
     demucster_detail: str | None
     demucster: dict[str, object] = Field(default_factory=dict)
     transcriber: dict[str, object] = Field(default_factory=dict)
+    lyrics: dict[str, object] = Field(default_factory=dict)
     queue: dict[str, object] = Field(default_factory=dict)
     gpu: dict[str, object] = Field(default_factory=dict)
     dgx: dict[str, object] = Field(default_factory=dict)

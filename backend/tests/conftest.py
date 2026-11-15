@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from app.config import Settings
-from app.demucster import DemucsterError, RemoteJob
+from app.demucster import DemucsterError, RemoteJob, RemoteLyricsJob
 from app.drumster import DrumsterError, RemoteTranscription
 from app.main import create_app
 
@@ -23,6 +23,37 @@ class FakeDemucster:
         self.stem_content = b"ID3-detangle-test-audio"
         self.source_content = b"RIFF-detangle-test-source"
         self.counter = 0
+
+        self.lyrics_jobs: dict[str, RemoteLyricsJob] = {}
+        self.lyrics_deleted: list[str] = []
+        self.lyrics_uploads: list[bytes] = []
+        self.lyrics_submissions: list[dict[str, object]] = []
+        self.lyrics_artifact_content: dict[str, tuple[str, bytes]] = {
+            "json": (
+                "application/json",
+                (
+                    b'{"version":1,"title":"Test","model":"large-v3-turbo",'
+                    b'"summary":{"language":"en","line_count":1,"word_count":2,'
+                    b'"duration_seconds":1.5,"llm_refined":true,'
+                    b'"llm_model":"qwen3:27b","aligned_with_reference":false},'
+                    b'"lines":[{"index":0,"start":0.2,"end":1.2,'
+                    b'"text":"Hello world","words":['
+                    b'{"word":"Hello","start":0.2,"end":0.6,"score":0.95},'
+                    b'{"word":"world","start":0.7,"end":1.2,"score":0.96}]}]}'
+                ),
+            ),
+            "lrc": ("text/plain", b"[00:00.20] <00:00.20>Hello <00:00.70>world\n"),
+            "ass": (
+                "text/plain",
+                (
+                    b"[Script Info]\nScriptType: v4.00+\n[Events]\n"
+                    b"Dialogue: 0,0:00:00.20,0:00:01.20,Karaoke,,0,0,0,karaoke,"
+                    b"{\\kf40}Hello {\\k10}{\\kf50}world\n"
+                ),
+            ),
+            "srt": ("text/plain", b"1\n00:00:00,200 --> 00:00:01,200\nHello world\n"),
+        }
+        self.lyrics_counter = 0
 
     async def close(self) -> None:
         pass
@@ -125,6 +156,52 @@ class FakeDemucster:
             200,
             headers={"content-type": "audio/wav"},
             content=self.source_content,
+        )
+
+    async def submit_lyrics_upload(
+        self,
+        *,
+        file: BinaryIO,
+        filename: str,
+        content_type: str | None,
+        options: dict[str, object],
+    ) -> RemoteLyricsJob:
+        self.lyrics_uploads.append(file.read())
+        self.lyrics_submissions.append({"filename": filename, "options": dict(options)})
+        self.lyrics_counter += 1
+        item = RemoteLyricsJob(
+            id=f"lyrics-{self.lyrics_counter}",
+            status="QUEUED",
+            progress=0.0,
+            error=None,
+            artifacts=[],
+            summary=None,
+            filename=filename,
+        )
+        self.lyrics_jobs[item.id] = item
+        return item
+
+    async def get_lyrics_job(self, remote_id: str) -> RemoteLyricsJob:
+        try:
+            return self.lyrics_jobs[remote_id]
+        except KeyError as exc:
+            raise DemucsterError("Remote job was not found", 404) from exc
+
+    async def delete_lyrics_job(self, remote_id: str) -> None:
+        self.lyrics_deleted.append(remote_id)
+        self.lyrics_jobs.pop(remote_id, None)
+
+    @asynccontextmanager
+    async def stream_lyrics_artifact(
+        self, remote_id: str, kind: str
+    ) -> AsyncIterator[httpx.Response]:
+        if kind not in self.lyrics_artifact_content:
+            raise DemucsterError("Unknown artifact", 404)
+        media_type, content = self.lyrics_artifact_content[kind]
+        yield httpx.Response(
+            200,
+            headers={"content-type": media_type},
+            content=content,
         )
 
 

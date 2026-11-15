@@ -4,6 +4,10 @@ import type {
   AuthResponse,
   Job,
   JobStatus,
+  LyricsDocument,
+  LyricsExtraction,
+  LyricsFileKind,
+  LyricsOptions,
   Model,
   Paginated,
   SeparationOptions,
@@ -106,6 +110,15 @@ export function transcriptionFileUrl(
   return `/api/jobs/${encodeURIComponent(jobId)}/transcriptions/${encodeURIComponent(transcriptionId)}/files/${encodeURIComponent(kind)}?download=${download ? 1 : 0}`
 }
 
+export function lyricsFileUrl(
+  jobId: string,
+  lyricsId: string,
+  kind: LyricsFileKind,
+  download = false,
+) {
+  return `/api/jobs/${encodeURIComponent(jobId)}/lyrics/${encodeURIComponent(lyricsId)}/files/${encodeURIComponent(kind)}?download=${download ? 1 : 0}`
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<AuthResponse>('/api/auth/login', {
@@ -169,6 +182,25 @@ export const api = {
       `/api/jobs/${encodeURIComponent(jobId)}/transcriptions/${encodeURIComponent(transcriptionId)}`,
       { method: 'DELETE' },
     ),
+
+  lyrics: async (jobId: string) => {
+    const data = await request<{ items: LyricsExtraction[] }>(
+      `/api/jobs/${encodeURIComponent(jobId)}/lyrics`,
+    )
+    return data.items
+  },
+  createLyrics: (jobId: string, options: Partial<LyricsOptions> = {}) =>
+    request<LyricsExtraction>(`/api/jobs/${encodeURIComponent(jobId)}/lyrics`, {
+      method: 'POST',
+      body: JSON.stringify(options),
+    }),
+  deleteLyrics: (jobId: string, lyricsId: string) =>
+    request<void>(
+      `/api/jobs/${encodeURIComponent(jobId)}/lyrics/${encodeURIComponent(lyricsId)}`,
+      { method: 'DELETE' },
+    ),
+  lyricsDocument: (jobId: string, lyricsId: string) =>
+    request<LyricsDocument>(lyricsFileUrl(jobId, lyricsId, 'json', false)),
 
   overview: () => request<SystemOverview>('/api/system/overview'),
   models: async () => {

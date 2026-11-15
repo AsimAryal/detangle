@@ -149,6 +149,9 @@ class Job(Base):
     transcriptions: Mapped[list["Transcription"]] = relationship(
         back_populates="job", cascade="all, delete-orphan", passive_deletes=True
     )
+    lyrics_extractions: Mapped[list["LyricsExtraction"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class Stem(Base):
@@ -231,6 +234,69 @@ class TranscriptionFile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     transcription: Mapped[Transcription] = relationship(back_populates="files")
+
+
+class LyricsExtraction(Base):
+    __tablename__ = "lyrics_extractions"
+    __table_args__ = (Index("ix_lyrics_extractions_status_updated", "status", "updated_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), index=True
+    )
+    stem_name: Mapped[str] = mapped_column(String(160), default="vocals")
+    remote_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    model: Mapped[str] = mapped_column(String(64), default="large-v3-turbo")
+    options_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[JobStatus] = mapped_column(
+        Enum(
+            JobStatus,
+            native_enum=False,
+            length=24,
+            values_callable=lambda values: [item.value for item in values],
+        ),
+        default=JobStatus.QUEUED,
+        index=True,
+    )
+    progress: Mapped[float] = mapped_column(default=0.0)
+    error: Mapped[str | None] = mapped_column(Text)
+    summary_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archive_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    remote_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    job: Mapped[Job] = relationship(back_populates="lyrics_extractions")
+    files: Mapped[list["LyricsFile"]] = relationship(
+        back_populates="lyrics_extraction",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+    )
+
+
+class LyricsFile(Base):
+    __tablename__ = "lyrics_files"
+    __table_args__ = (
+        UniqueConstraint("lyrics_id", "kind", name="uq_lyrics_file_kind"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    lyrics_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("lyrics_extractions.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32))
+    filename: Mapped[str] = mapped_column(String(255))
+    relative_path: Mapped[str] = mapped_column(String(500))
+    media_type: Mapped[str] = mapped_column(String(100))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    lyrics_extraction: Mapped[LyricsExtraction] = relationship(back_populates="files")
 
 
 class AppSetting(Base):

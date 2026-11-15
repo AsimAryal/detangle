@@ -30,6 +30,17 @@ class RemoteJob:
     filename: str | None = None
 
 
+@dataclass(slots=True)
+class RemoteLyricsJob:
+    id: str
+    status: str
+    progress: float
+    error: str | None
+    artifacts: list[str]
+    summary: dict[str, Any] | None = None
+    filename: str | None = None
+
+
 ERROR_MAP = {
     400: (400, "Demucster rejected the request"),
     404: (404, "Remote job was not found"),
@@ -206,6 +217,99 @@ class DemucsterClient:
             yield response
         finally:
             await response.aclose()
+
+    async def submit_lyrics_upload(
+        self,
+        *,
+        file: BinaryIO,
+        filename: str,
+        content_type: str | None,
+        options: dict[str, Any],
+    ) -> RemoteLyricsJob:
+        data: dict[str, str] = {}
+        for key in ("model", "language", "reference_lyrics", "title"):
+            val = options.get(key)
+            if val is not None and str(val).strip():
+                data[key] = str(val)
+        if "use_llm_cleanup" in options and options["use_llm_cleanup"] is not None:
+            data["use_llm_cleanup"] = "true" if options["use_llm_cleanup"] else "false"
+        response = await self._request(
+            "POST",
+            "/api/v1/lyrics/upload",
+            data=data,
+            files={"file": (filename, file, content_type or "application/octet-stream")},
+        )
+        return self._parse_lyrics_job(self._json(response))
+
+    async def get_lyrics_job(self, remote_id: str) -> RemoteLyricsJob:
+        encoded_id = quote(remote_id, safe="")
+        return self._parse_lyrics_job(
+            self._json(await self._request("GET", f"/api/v1/lyrics/{encoded_id}"))
+        )
+
+    async def delete_lyrics_job(self, remote_id: str) -> None:
+        await self._request("DELETE", f"/api/v1/lyrics/{quote(remote_id, safe='')}")
+
+    @asynccontextmanager
+    async def stream_lyrics_artifact(
+        self, remote_id: str, kind: str
+    ) -> AsyncIterator[httpx.Response]:
+        encoded_id = quote(remote_id, safe="")
+        encoded_kind = quote(kind, safe="")
+        request = self.client.build_request(
+            "GET", f"/api/v1/lyrics/{encoded_id}/artifacts/{encoded_kind}"
+        )
+        try:
+            response = await self.client.send(request, stream=True)
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.ProtocolError) as exc:
+            raise DemucsterError("Demucster is unavailable", 503) from exc
+        if response.is_error:
+            await response.aclose()
+            api_status, detail = ERROR_MAP.get(
+                response.status_code, (502, "Unexpected response from Demucster")
+            )
+            raise DemucsterError(detail, api_status)
+        try:
+            yield response
+        finally:
+            await response.aclose()
+
+    @staticmethod
+    def _parse_lyrics_job(payload: Any) -> RemoteLyricsJob:
+        if not isinstance(payload, dict):
+            raise DemucsterError("Demucster returned malformed lyrics data")
+        remote_id = payload.get("id", payload.get("job_id"))
+        status = payload.get("status")
+        if not isinstance(remote_id, (str, int)) or not isinstance(status, str):
+            raise DemucsterError("Demucster returned incomplete lyrics data")
+        raw_progress = payload.get("progress_pct", payload.get("progress", 0))
+        try:
+            progress = max(0.0, min(100.0, float(raw_progress)))
+        except (TypeError, ValueError):
+            progress = 0.0
+        raw_artifacts = payload.get("artifacts", {})
+        artifacts: list[str] = []
+        if isinstance(raw_artifacts, dict):
+            artifacts = [str(k) for k in raw_artifacts]
+        elif isinstance(raw_artifacts, list):
+            artifacts = [str(k) for k in raw_artifacts if isinstance(k, str)]
+        summary = payload.get("summary")
+        if not isinstance(summary, dict):
+            summary = None
+        error = payload.get("error_message", payload.get("error", payload.get("detail")))
+        return RemoteLyricsJob(
+            id=str(remote_id),
+            status=status.upper(),
+            progress=progress,
+            error=str(error)[:2000] if error else None,
+            artifacts=artifacts,
+            summary=summary,
+            filename=(
+                str(payload["filename"])[:255]
+                if isinstance(payload.get("filename"), str)
+                else None
+            ),
+        )
 
     @staticmethod
     def _parse_job(payload: Any) -> RemoteJob:

@@ -62,6 +62,14 @@ async def overview(
                 "processing": int(drumster.get("active_jobs") or 0),
             },
         },
+        lyrics={
+            "enabled": bool(demucster.get("lyrics_enabled", False)),
+            "ollama_configured": bool(demucster.get("ollama_configured", False)),
+            "queue": {
+                "queued": int(demucster.get("lyrics_queued_jobs") or 0),
+                "processing": int(demucster.get("lyrics_active_jobs") or 0),
+            },
+        },
         queue={"queued": queued_jobs, "processing": active_jobs},
         gpu={
             "status": "Online" if healthy else "Offline",

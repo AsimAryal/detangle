@@ -1,0 +1,275 @@
+import { useQuery } from '@tanstack/react-query'
+import { Maximize2, Minimize2, Mic2, Volume2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { api } from '../lib/api'
+import type { Job, LyricsLine, LyricsWord, Stem } from '../types'
+import { Button, ErrorState, Skeleton, formatStemLabel } from './ui'
+
+interface KaraokePlayerProps {
+  job: Job
+  lyricsId: string
+}
+
+function stemMediaUrl(jobId: string, stem: Stem) {
+  return (
+    stem.media_url ||
+    `/api/jobs/${encodeURIComponent(jobId)}/stems/${encodeURIComponent(stem.name)}?download=0`
+  )
+}
+
+function pickDefaultStem(stems: Stem[]): Stem | undefined {
+  const priority = ['no_vocals', 'original', 'vocals']
+  for (const name of priority) {
+    const match = stems.find((s) => s.name === name)
+    if (match) return match
+  }
+  return stems[0]
+}
+
+function wordProgressPct(word: LyricsWord, currentTime: number): number {
+  if (currentTime <= word.start) return 0
+  if (currentTime >= word.end) return 100
+  const span = Math.max(0.02, word.end - word.start)
+  return Math.min(100, Math.max(0, ((currentTime - word.start) / span) * 100))
+}
+
+function findActiveLineIndex(lines: LyricsLine[], currentTime: number): number {
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (currentTime >= line.start && currentTime <= line.end) {
+      return i
+    }
+    if (currentTime < line.start) {
+      return i > 0 && currentTime - lines[i - 1].end < 1.0 ? i - 1 : i
+    }
+  }
+  return lines.length > 0 ? lines.length - 1 : -1
+}
+
+export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
+  const docQuery = useQuery({
+    queryKey: ['lyrics-doc', job.id, lyricsId],
+    queryFn: () => api.lyricsDocument(job.id, lyricsId),
+  })
+
+  const playableStems = useMemo(() => {
+    const order = ['no_vocals', 'original', 'vocals']
+    return [...job.stems].sort((a, b) => {
+      const ia = order.indexOf(a.name)
+      const ib = order.indexOf(b.name)
+      if (ia !== -1 || ib !== -1) {
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+      }
+      return a.name.localeCompare(b.name)
+    })
+  }, [job.stems])
+
+  const defaultStem = useMemo(() => pickDefaultStem(playableStems), [playableStems])
+  const [selectedStemName, setSelectedStemName] = useState<string>(
+    defaultStem?.name || '',
+  )
+  const [currentTime, setCurrentTime] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  const shellRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const lineRefs = useRef<Array<HTMLDivElement | null>>([])
+  const pendingSeekRef = useRef<{ time: number; autoplay: boolean } | null>(null)
+
+  const activeStem =
+    playableStems.find((s) => s.name === selectedStemName) || defaultStem
+
+  useEffect(() => {
+    if (!isPlaying) return undefined
+    let frameId = 0
+    const tick = () => {
+      if (audioRef.current) {
+        setCurrentTime(audioRef.current.currentTime)
+      }
+      frameId = window.requestAnimationFrame(tick)
+    }
+    frameId = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frameId)
+  }, [isPlaying])
+
+  useEffect(() => {
+    const onFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement))
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+
+  const lines = docQuery.data?.lines ?? []
+  const activeLineIndex = findActiveLineIndex(lines, currentTime)
+
+  useEffect(() => {
+    if (activeLineIndex < 0) return
+    const container = stageRef.current
+    const el = lineRefs.current[activeLineIndex]
+    if (!container || !el) return
+    const targetTop =
+      el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2
+    container.scrollTo?.({
+      top: Math.max(0, targetTop),
+      behavior: 'smooth',
+    })
+  }, [activeLineIndex])
+
+  const seekTo = (seconds: number, autoplay = true) => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.currentTime = Math.max(0, seconds)
+    setCurrentTime(audio.currentTime)
+    if (autoplay && audio.paused) {
+      void audio.play().catch(() => {})
+    }
+  }
+
+  const switchTrack = (nextStemName: string) => {
+    if (nextStemName === activeStem?.name) return
+    const audio = audioRef.current
+    if (audio) {
+      pendingSeekRef.current = {
+        time: audio.currentTime || currentTime,
+        autoplay: !audio.paused,
+      }
+    }
+    setSelectedStemName(nextStemName)
+  }
+
+  const toggleFullscreen = async () => {
+    const target = shellRef.current
+    if (!target) return
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+    } else if (target.requestFullscreen) {
+      await target.requestFullscreen()
+    }
+  }
+
+  if (docQuery.isLoading) {
+    return <Skeleton className="score-canvas-skeleton" />
+  }
+  if (docQuery.isError || !docQuery.data) {
+    return (
+      <ErrorState
+        message={docQuery.error?.message || 'Could not load timed lyrics JSON.'}
+        retry={() => void docQuery.refetch()}
+      />
+    )
+  }
+
+  return (
+    <div
+      ref={shellRef}
+      className={`karaoke-player-shell${isFullscreen ? ' fullscreen' : ''}`}
+    >
+      <div className="karaoke-toolbar">
+        <div className="karaoke-track-pills" role="group" aria-label="Karaoke audio track">
+          <span className="karaoke-track-label">
+            <Volume2 /> Track
+          </span>
+          {playableStems.map((stem) => (
+            <button
+              key={stem.name}
+              type="button"
+              className={`karaoke-track-pill${stem.name === activeStem?.name ? ' active' : ''}`}
+              onClick={() => switchTrack(stem.name)}
+            >
+              {stem.display_name || formatStemLabel(stem.name)}
+            </button>
+          ))}
+        </div>
+        <Button
+          variant="ghost"
+          icon={isFullscreen ? Minimize2 : Maximize2}
+          onClick={() => void toggleFullscreen()}
+        >
+          {isFullscreen ? 'Exit stage' : 'Stage mode'}
+        </Button>
+      </div>
+
+      {activeStem && (
+        <audio
+          ref={audioRef}
+          className="karaoke-audio"
+          controls
+          preload="metadata"
+          src={stemMediaUrl(job.id, activeStem)}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          onEnded={() => setIsPlaying(false)}
+          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+          onSeeked={(e) => setCurrentTime(e.currentTarget.currentTime)}
+          onLoadedMetadata={(e) => {
+            const pending = pendingSeekRef.current
+            if (pending) {
+              pendingSeekRef.current = null
+              e.currentTarget.currentTime = pending.time
+              setCurrentTime(pending.time)
+              if (pending.autoplay) {
+                void e.currentTarget.play().catch(() => {})
+              }
+            }
+          }}
+        >
+          Audio playback is not supported by this browser.
+        </audio>
+      )}
+
+      {lines.length === 0 ? (
+        <div className="karaoke-empty">
+          <Mic2 />
+          <p>No sung lyrics were detected in this audio track.</p>
+        </div>
+      ) : (
+        <div ref={stageRef} className="karaoke-stage" aria-label="Synchronized lyrics">
+          {lines.map((line, lineIdx) => {
+            const isActive = lineIdx === activeLineIndex
+            const isPast = activeLineIndex !== -1 && lineIdx < activeLineIndex
+            return (
+              <div
+                key={line.index}
+                ref={(el) => {
+                  lineRefs.current[lineIdx] = el
+                }}
+                className={`karaoke-line${isActive ? ' active' : ''}${isPast ? ' past' : ''}`}
+              >
+                {line.words.length > 0 ? (
+                  line.words.map((word, wordIdx) => {
+                    const fillPct = wordProgressPct(word, currentTime)
+                    const isWordActive =
+                      currentTime >= word.start && currentTime <= word.end
+                    return (
+                      <button
+                        key={`${line.index}-${wordIdx}`}
+                        type="button"
+                        className={`karaoke-word${isWordActive ? ' current' : ''}${fillPct >= 100 ? ' sung' : ''}`}
+                        style={{ '--karaoke-fill': `${fillPct.toFixed(1)}%` } as React.CSSProperties}
+                        onClick={() => seekTo(word.start)}
+                        title={`Seek to ${word.start.toFixed(2)}s`}
+                      >
+                        {word.word}
+                      </button>
+                    )
+                  })
+                ) : (
+                  <button
+                    type="button"
+                    className="karaoke-word"
+                    onClick={() => seekTo(line.start)}
+                  >
+                    {line.text}
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}

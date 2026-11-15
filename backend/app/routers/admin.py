@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.demucster import DemucsterError
 from app.dependencies import AdminUser, DbSession
-from app.models import AppSetting, Job, JobStatus, Session, Stem, User, UserRole
+from app.models import AppSetting, Job, JobStatus, LyricsExtraction, Session, Stem, User, UserRole
 from app.schemas import (
     AdminUserOut,
     AppSettingsOut,
@@ -260,6 +260,23 @@ async def delete_user(
                     raise HTTPException(
                         status_code=exc.status_code, detail=exc.detail
                     ) from exc
+        remote_lyrics = list(
+            (
+                await db.scalars(
+                    select(LyricsExtraction).where(
+                        LyricsExtraction.job_id == job.id,
+                        LyricsExtraction.remote_id.is_not(None),
+                        LyricsExtraction.remote_deleted.is_(False),
+                    )
+                )
+            ).all()
+        )
+        for item in remote_lyrics:
+            if item.remote_id:
+                try:
+                    await request.app.state.lyrics_client.delete_lyrics_job(item.remote_id)
+                except DemucsterError:
+                    pass
         await request.app.state.archiver.delete_job_files(job.id)
     await db.delete(user)
     await db.commit()

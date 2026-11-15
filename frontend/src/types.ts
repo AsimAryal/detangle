@@ -115,6 +115,74 @@ export interface Transcription {
   completed_at?: string | null
 }
 
+export type LyricsFileKind = 'json' | 'lrc' | 'ass' | 'srt'
+
+export interface LyricsFile {
+  id: string
+  kind: LyricsFileKind
+  filename: string
+  media_type: string
+  size: number
+  created_at: string
+}
+
+export interface LyricsWord {
+  word: string
+  start: number
+  end: number
+  score?: number | null
+}
+
+export interface LyricsLine {
+  index: number
+  start: number
+  end: number
+  text: string
+  words: LyricsWord[]
+}
+
+export interface LyricsSummary {
+  language?: string | null
+  line_count: number
+  word_count: number
+  duration_seconds: number
+  llm_refined: boolean
+  llm_model?: string | null
+  aligned_with_reference: boolean
+}
+
+export interface LyricsDocument {
+  version: number
+  title?: string | null
+  model: string
+  summary: LyricsSummary
+  lines: LyricsLine[]
+}
+
+export interface LyricsOptions {
+  stem?: 'vocals' | 'original'
+  model: 'large-v3-turbo' | 'large-v3' | 'medium'
+  language?: string | null
+  reference_lyrics?: string | null
+  use_llm_cleanup: boolean
+}
+
+export interface LyricsExtraction {
+  id: string
+  job_id: string
+  stem_name: string
+  model: string
+  status: JobStatus
+  progress_pct: number
+  error_message?: string | null
+  options: LyricsOptions
+  summary?: LyricsSummary | null
+  files: LyricsFile[]
+  created_at: string
+  updated_at: string
+  completed_at?: string | null
+}
+
 export interface Paginated<T> {
   items: T[]
   total: number

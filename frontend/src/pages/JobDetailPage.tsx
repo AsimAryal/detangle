@@ -22,6 +22,7 @@ import {
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { DrumNotationPanel } from '../components/DrumNotationPanel'
+import { KaraokeLyricsPanel } from '../components/KaraokeLyricsPanel'
 import {
   Badge,
   Button,
@@ -391,6 +392,7 @@ export function JobDetailPage() {
               )}
             </section>
 
+            <KaraokeLyricsPanel job={job} />
             <DrumNotationPanel job={job} />
           </>
         )

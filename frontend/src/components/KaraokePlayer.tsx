@@ -1,43 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  Maximize2,
-  Minimize2,
-  Mic2,
-  Pencil,
-  Redo2,
-  Save,
-  Undo2,
-  Volume2,
-  X,
-} from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Maximize2, Minimize2, Mic2, Pencil, Timer, Volume2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import { useEditHistory } from '../lib/editHistory'
 import {
-  FINE_NUDGE_STEP,
-  LOOP_POST_ROLL,
-  LOOP_PRE_ROLL,
-  NUDGE_STEP,
-  PLAYBACK_RATES,
-  isDirty,
-  nextWordRef,
-  nudgeWord,
-  setWordTime,
-  toSavePayload,
-  validateLines,
-  type WordRef,
+  findActiveLineIndex,
+  getCountdownBeat,
+  getPreRollDelay,
+  wordProgressPct,
 } from '../lib/lyricsEdit'
-import type { Job, LyricsLine, LyricsWord, Stem } from '../types'
-import LyricsEditor from './LyricsEditor'
-import {
-  Badge,
-  Button,
-  ConfirmDialog,
-  ErrorState,
-  Skeleton,
-  formatStemLabel,
-  useToast,
-} from './ui'
+import type { Job, Stem } from '../types'
+import LyricsEditorModal from './LyricsEditorModal'
+import { Button, ErrorState, Skeleton, formatStemLabel } from './ui'
 
 interface KaraokePlayerProps {
   job: Job
@@ -62,68 +35,12 @@ function pickDefaultStem(stems: Stem[]): Stem | undefined {
   return stems[0]
 }
 
-function wordProgressPct(word: LyricsWord, currentTime: number): number {
-  if (currentTime <= word.start) return 0
-  if (currentTime >= word.end) return 100
-  const span = Math.max(0.02, word.end - word.start)
-  return Math.min(100, Math.max(0, ((currentTime - word.start) / span) * 100))
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  if (target.isContentEditable) return true
-  const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-}
-
-function wrapLoopPlayback(
-  audio: HTMLAudioElement,
-  sourceLines: LyricsLine[],
-  idx: number | null,
-) {
-  if (idx === null) return
-  const target = sourceLines[idx]
-  if (!target) return
-  if (audio.currentTime >= target.end + LOOP_POST_ROLL) {
-    audio.currentTime = Math.max(0, target.start - LOOP_PRE_ROLL)
-  }
-}
-
-function seekAudio(
-  audio: HTMLAudioElement | null,
-  onTime: (time: number) => void,
-  seconds: number,
-  autoplay = true,
-) {
-  if (!audio) return
-  audio.currentTime = Math.max(0, seconds)
-  onTime(audio.currentTime)
-  if (autoplay && audio.paused) {
-    void audio.play().catch(() => {})
-  }
-}
-
-function findActiveLineIndex(lines: LyricsLine[], currentTime: number): number {
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]
-    if (currentTime >= line.start && currentTime <= line.end) {
-      return i
-    }
-    if (currentTime < line.start) {
-      return i > 0 && currentTime - lines[i - 1].end < 1.0 ? i - 1 : i
-    }
-  }
-  return lines.length > 0 ? lines.length - 1 : -1
-}
-
 export default function KaraokePlayer({
   job,
   lyricsId,
   version = null,
   canEdit = true,
 }: KaraokePlayerProps) {
-  const toast = useToast()
-  const queryClient = useQueryClient()
   const docQuery = useQuery({
     queryKey: ['lyrics-doc', job.id, lyricsId, version ?? ''],
     queryFn: () => api.lyricsDocument(job.id, lyricsId, version),
@@ -148,15 +65,55 @@ export default function KaraokePlayer({
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isEditorOpen, setIsEditorOpen] = useState(false)
+  const [countdownEnabled, setCountdownEnabled] = useState(true)
+  const [preRoll, setPreRoll] = useState<{ total: number } | null>(null)
+  const [preRollElapsed, setPreRollElapsed] = useState(0)
 
   const shellRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const lineRefs = useRef<Array<HTMLDivElement | null>>([])
   const pendingSeekRef = useRef<{ time: number; autoplay: boolean } | null>(null)
+  const preRollArmedRef = useRef(true)
 
   const activeStem =
     playableStems.find((s) => s.name === selectedStemName) || defaultStem
+
+  useEffect(() => {
+    if (!isPlaying) return undefined
+    let frameId = 0
+    const tick = () => {
+      if (audioRef.current) {
+        setCurrentTime(audioRef.current.currentTime)
+      }
+      frameId = window.requestAnimationFrame(tick)
+    }
+    frameId = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frameId)
+  }, [isPlaying])
+
+  useEffect(() => {
+    if (!preRoll) return undefined
+    const startedAt = performance.now()
+    let frameId = 0
+    const step = () => {
+      const elapsed = (performance.now() - startedAt) / 1000
+      if (elapsed >= preRoll.total) {
+        setPreRoll(null)
+        setPreRollElapsed(0)
+        const audio = audioRef.current
+        if (audio) {
+          void audio.play().catch(() => {})
+        }
+        return
+      }
+      setPreRollElapsed(elapsed)
+      frameId = window.requestAnimationFrame(step)
+    }
+    frameId = window.requestAnimationFrame(step)
+    return () => window.cancelAnimationFrame(frameId)
+  }, [preRoll])
 
   useEffect(() => {
     const onFsChange = () => {
@@ -168,295 +125,14 @@ export default function KaraokePlayer({
 
   const lines = useMemo(() => docQuery.data?.lines ?? [], [docQuery.data])
   const activeLineIndex = findActiveLineIndex(lines, currentTime)
-
-  const [isEditing, setIsEditing] = useState(false)
-  const {
-    value: draft,
-    set: setDraft,
-    undo: undoDraft,
-    redo: redoDraft,
-    reset: resetDraft,
-    canUndo,
-    canRedo,
-  } = useEditHistory<LyricsLine[] | null>(null)
-  const [selected, setSelected] = useState<WordRef | null>(null)
-  const [loopLineIdx, setLoopLineIdx] = useState<number | null>(null)
-  const [playbackRate, setPlaybackRate] = useState<number>(1)
-  const [confirmDiscard, setConfirmDiscard] = useState(false)
-
-  const activeLines = draft ?? lines
-  const activeLoopLineIdx =
-    loopLineIdx !== null && loopLineIdx < activeLines.length ? loopLineIdx : null
-
-  useEffect(() => {
-    if (!isPlaying) return undefined
-    let frameId = 0
-    const tick = () => {
-      const audio = audioRef.current
-      if (audio) {
-        wrapLoopPlayback(audio, activeLines, activeLoopLineIdx)
-        setCurrentTime(audio.currentTime)
-      }
-      frameId = window.requestAnimationFrame(tick)
-    }
-    frameId = window.requestAnimationFrame(tick)
-    return () => window.cancelAnimationFrame(frameId)
-  }, [isPlaying, activeLines, activeLoopLineIdx])
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.playbackRate = playbackRate
-    }
-  }, [playbackRate, activeStem?.name])
-
-  const dirty = draft ? isDirty(lines, draft) : false
-  const issues = useMemo(() => (draft ? validateLines(draft) : []), [draft])
-
-  const exitEditing = () => {
-    setIsEditing(false)
-    resetDraft(null)
-    setSelected(null)
-    setLoopLineIdx(null)
-    setPlaybackRate(1)
-    setConfirmDiscard(false)
-  }
-
-  const save = useMutation({
-    mutationFn: (next: LyricsLine[]) =>
-      api.saveLyricsDocument(job.id, lyricsId, toSavePayload(next)),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['lyrics', job.id] })
-      void queryClient.invalidateQueries({ queryKey: ['lyrics-doc', job.id, lyricsId] })
-      exitEditing()
-      toast.show('Lyrics saved.', { tone: 'success' })
-    },
-    onError: (err) => toast.show(err.message, { tone: 'error' }),
-  })
-
-  const canSave = Boolean(draft) && dirty && issues.length === 0 && !save.isPending
-
-  const startEditing = async () => {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen().catch(() => {})
-    }
-    resetDraft(structuredClone(lines))
-    setSelected(null)
-    setLoopLineIdx(null)
-    setPlaybackRate(1)
-    setIsEditing(true)
-  }
-
-  const requestCancel = () => {
-    if (dirty) {
-      setConfirmDiscard(true)
-    } else {
-      exitEditing()
-    }
-  }
-
-  const seekTo = (seconds: number, autoplay = true) => {
-    seekAudio(audioRef.current, setCurrentTime, seconds, autoplay)
-  }
-
-  const handleUndo = () => {
-    const next = undoDraft()
-    if (next && selected && !next[selected.lineIdx]?.words[selected.wordIdx]) {
-      setSelected(null)
-    }
-  }
-
-  const handleRedo = () => {
-    const next = redoDraft()
-    if (next && selected && !next[selected.lineIdx]?.words[selected.wordIdx]) {
-      setSelected(null)
-    }
-  }
-
-  const toggleLoop = (lineIdx: number) => {
-    if (activeLoopLineIdx === lineIdx) {
-      setLoopLineIdx(null)
-      return
-    }
-    const target = activeLines[lineIdx]
-    setLoopLineIdx(lineIdx)
-    if (target) {
-      seekAudio(
-        audioRef.current,
-        setCurrentTime,
-        Math.max(0, target.start - LOOP_PRE_ROLL),
-        true,
-      )
-    }
-  }
-
-  useEffect(() => {
-    if (!dirty) return undefined
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [dirty])
-
-  useEffect(() => {
-    if (!isEditing || !draft) return undefined
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (confirmDiscard) return
-      const mod = e.ctrlKey || e.metaKey
-      if (mod && !e.altKey && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-        if (canSave) save.mutate(draft)
-        return
-      }
-      if (isEditableTarget(e.target)) return
-
-      if (mod && !e.altKey) {
-        const key = e.key.toLowerCase()
-        if (key === 'z' && !e.shiftKey) {
-          e.preventDefault()
-          const next = undoDraft()
-          if (next && selected && !next[selected.lineIdx]?.words[selected.wordIdx]) {
-            setSelected(null)
-          }
-          return
-        }
-        if ((key === 'z' && e.shiftKey) || (key === 'y' && !e.shiftKey)) {
-          e.preventDefault()
-          const next = redoDraft()
-          if (next && selected && !next[selected.lineIdx]?.words[selected.wordIdx]) {
-            setSelected(null)
-          }
-          return
-        }
-      }
-
-      const playhead = audioRef.current?.currentTime ?? 0
-      const selectedWord = selected
-        ? draft[selected.lineIdx]?.words[selected.wordIdx]
-        : undefined
-
-      if (e.key === ' ' && !mod && !e.altKey) {
-        e.preventDefault()
-        const audio = audioRef.current
-        if (!audio) return
-        if (audio.paused) {
-          void audio.play().catch(() => {})
-        } else {
-          audio.pause()
-        }
-        return
-      }
-
-      if ((e.key === '[' || e.key === ']') && !mod && !e.altKey) {
-        e.preventDefault()
-        if (!selected || !selectedWord) {
-          const first = nextWordRef(draft, null, 1)
-          if (first) setSelected(first)
-          return
-        }
-        if (e.key === '[') {
-          setDraft(setWordTime(draft, selected, 'start', playhead))
-        } else {
-          const next = setWordTime(draft, selected, 'end', playhead)
-          setDraft(next)
-          setSelected(nextWordRef(next, selected, 1))
-        }
-        return
-      }
-
-      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !mod) {
-        const dir: 1 | -1 = e.key === 'ArrowRight' ? 1 : -1
-        if (e.altKey) {
-          e.preventDefault()
-          if (!selected || !selectedWord) return
-          const step = e.shiftKey ? FINE_NUDGE_STEP : NUDGE_STEP
-          setDraft(nudgeWord(draft, selected, 'both', dir * step))
-          return
-        }
-        if (!e.shiftKey) {
-          e.preventDefault()
-          if (!selected) {
-            const first = nextWordRef(draft, null, 1)
-            if (first) setSelected(first)
-          } else {
-            setSelected(nextWordRef(draft, selected, dir))
-          }
-        }
-        return
-      }
-
-      if (e.key.toLowerCase() === 'l' && !mod && !e.altKey && !e.shiftKey) {
-        e.preventDefault()
-        const idx = selected ? selected.lineIdx : findActiveLineIndex(draft, playhead)
-        if (idx >= 0 && idx < draft.length) {
-          if (activeLoopLineIdx === idx) {
-            setLoopLineIdx(null)
-          } else {
-            const target = draft[idx]
-            setLoopLineIdx(idx)
-            if (target) {
-              seekAudio(
-                audioRef.current,
-                setCurrentTime,
-                Math.max(0, target.start - LOOP_PRE_ROLL),
-                true,
-              )
-            }
-          }
-        }
-        return
-      }
-
-      if (!mod && !e.altKey && (e.key === '-' || e.key === '_' || e.key === '=' || e.key === '+')) {
-        e.preventDefault()
-        const curIdx = PLAYBACK_RATES.indexOf(
-          playbackRate as (typeof PLAYBACK_RATES)[number],
-        )
-        const baseIdx = curIdx === -1 ? PLAYBACK_RATES.length - 1 : curIdx
-        const nextIdx =
-          e.key === '-' || e.key === '_'
-            ? Math.max(0, baseIdx - 1)
-            : Math.min(PLAYBACK_RATES.length - 1, baseIdx + 1)
-        setPlaybackRate(PLAYBACK_RATES[nextIdx])
-        return
-      }
-
-      if (e.key === 'Enter' && !mod && !e.altKey && !e.shiftKey) {
-        if (
-          e.target instanceof HTMLElement &&
-          (e.target.tagName === 'SUMMARY' ||
-            (e.target.tagName === 'BUTTON' &&
-              !e.target.classList.contains('lyrics-editor-word')))
-        ) {
-          return
-        }
-        if (!selectedWord) return
-        e.preventDefault()
-        seekAudio(audioRef.current, setCurrentTime, selectedWord.start, true)
-        return
-      }
-
-      if (e.key === 'Escape' && !mod && !e.altKey && selected) {
-        e.preventDefault()
-        setSelected(null)
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [
-    isEditing,
-    draft,
-    selected,
-    canSave,
-    confirmDiscard,
-    save,
-    setDraft,
-    undoDraft,
-    redoDraft,
-    activeLoopLineIdx,
-    playbackRate,
-  ])
+  const preRollLeft = preRoll ? Math.max(0, preRoll.total - preRollElapsed) : null
+  const countdownBeat = getCountdownBeat(
+    lines,
+    currentTime,
+    isPlaying,
+    preRollLeft,
+    countdownEnabled,
+  )
 
   useEffect(() => {
     if (activeLineIndex < 0) return
@@ -471,12 +147,29 @@ export default function KaraokePlayer({
     })
   }, [activeLineIndex])
 
+  const seekTo = (seconds: number, autoplay = true) => {
+    const audio = audioRef.current
+    if (!audio) return
+    preRollArmedRef.current = false
+    setPreRoll(null)
+    setPreRollElapsed(0)
+    audio.currentTime = Math.max(0, seconds)
+    setCurrentTime(audio.currentTime)
+    if (autoplay && audio.paused) {
+      void audio.play().catch(() => {})
+    }
+  }
+
   const switchTrack = (nextStemName: string) => {
     if (nextStemName === activeStem?.name) return
     const audio = audioRef.current
+    setPreRoll(null)
+    setPreRollElapsed(0)
     if (audio) {
+      const time = audio.currentTime || currentTime
+      preRollArmedRef.current = time <= 0.05
       pendingSeekRef.current = {
-        time: audio.currentTime || currentTime,
+        time,
         autoplay: !audio.paused,
       }
     }
@@ -491,6 +184,44 @@ export default function KaraokePlayer({
     } else if (target.requestFullscreen) {
       await target.requestFullscreen()
     }
+  }
+
+  const openEditor = async () => {
+    setPreRoll(null)
+    setPreRollElapsed(0)
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause()
+    }
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {})
+    }
+    setIsEditorOpen(true)
+  }
+
+  const toggleCountdown = () => {
+    setCountdownEnabled((prev) => {
+      const next = !prev
+      if (!next && preRoll) {
+        setPreRoll(null)
+        setPreRollElapsed(0)
+        preRollArmedRef.current = false
+        void audioRef.current?.play().catch(() => {})
+      }
+      return next
+    })
+  }
+
+  const skipPreRoll = () => {
+    setPreRoll(null)
+    setPreRollElapsed(0)
+    preRollArmedRef.current = false
+    void audioRef.current?.play().catch(() => {})
+  }
+
+  const cancelPreRoll = () => {
+    setPreRoll(null)
+    setPreRollElapsed(0)
+    preRollArmedRef.current = true
   }
 
   if (docQuery.isLoading) {
@@ -527,83 +258,27 @@ export default function KaraokePlayer({
           ))}
         </div>
         <div className="karaoke-toolbar-actions">
-          {isEditing ? (
-            <>
-              <div className="karaoke-track-pills" role="group" aria-label="Playback speed">
-                {PLAYBACK_RATES.map((rate) => (
-                  <button
-                    key={rate}
-                    type="button"
-                    className={`karaoke-track-pill${playbackRate === rate ? ' active' : ''}`}
-                    aria-pressed={playbackRate === rate}
-                    onClick={() => setPlaybackRate(rate)}
-                  >
-                    {rate}×
-                  </button>
-                ))}
-              </div>
-              {activeLoopLineIdx !== null && (
-                <Badge tone="teal">
-                  Looping line {activeLoopLineIdx + 1}
-                  <button
-                    type="button"
-                    className="lyrics-loop-stop"
-                    aria-label="Stop loop"
-                    onClick={() => setLoopLineIdx(null)}
-                  >
-                    <X aria-hidden="true" />
-                  </button>
-                </Badge>
-              )}
-              <Button
-                variant="ghost"
-                icon={Undo2}
-                aria-label="Undo"
-                title="Undo (Ctrl+Z)"
-                disabled={!canUndo}
-                onClick={handleUndo}
-              >
-                Undo
-              </Button>
-              <Button
-                variant="ghost"
-                icon={Redo2}
-                aria-label="Redo"
-                title="Redo (Ctrl+Shift+Z)"
-                disabled={!canRedo}
-                onClick={handleRedo}
-              >
-                Redo
-              </Button>
-              <Button variant="ghost" icon={X} onClick={requestCancel}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                icon={Save}
-                loading={save.isPending}
-                disabled={!canSave}
-                onClick={() => draft && save.mutate(draft)}
-              >
-                Save changes
-              </Button>
-            </>
-          ) : (
-            <>
-              {canEdit && lines.length > 0 && (
-                <Button variant="ghost" icon={Pencil} onClick={() => void startEditing()}>
-                  Edit lyrics
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                icon={isFullscreen ? Minimize2 : Maximize2}
-                onClick={() => void toggleFullscreen()}
-              >
-                {isFullscreen ? 'Exit stage' : 'Stage mode'}
-              </Button>
-            </>
+          <button
+            type="button"
+            className={`karaoke-track-pill karaoke-countdown-toggle${countdownEnabled ? ' active' : ''}`}
+            aria-pressed={countdownEnabled}
+            onClick={toggleCountdown}
+            title="Show 3-2-1 countdown before lyrics start"
+          >
+            <Timer aria-hidden="true" /> 3·2·1 Countdown
+          </button>
+          {canEdit && lines.length > 0 && (
+            <Button variant="ghost" icon={Pencil} onClick={() => void openEditor()}>
+              Edit lyrics
+            </Button>
           )}
+          <Button
+            variant="ghost"
+            icon={isFullscreen ? Minimize2 : Maximize2}
+            onClick={() => void toggleFullscreen()}
+          >
+            {isFullscreen ? 'Exit stage' : 'Stage mode'}
+          </Button>
         </div>
       </div>
 
@@ -614,27 +289,33 @@ export default function KaraokePlayer({
           controls
           preload="metadata"
           src={stemMediaUrl(job.id, activeStem)}
-          onPlay={() => setIsPlaying(true)}
+          onPlay={(e) => {
+            const audio = e.currentTarget
+            const delay = getPreRollDelay(lines, countdownEnabled)
+            if (delay > 0 && audio.currentTime <= 0.05 && preRollArmedRef.current) {
+              preRollArmedRef.current = false
+              audio.pause()
+              if (audio.currentTime > 0) audio.currentTime = 0
+              setCurrentTime(0)
+              setPreRollElapsed(0)
+              setPreRoll({ total: delay })
+              return
+            }
+            setIsPlaying(true)
+          }}
           onPause={() => setIsPlaying(false)}
-          onEnded={(e) => {
-            const target =
-              activeLoopLineIdx !== null ? activeLines[activeLoopLineIdx] : undefined
-            if (target) {
-              const start = Math.max(0, target.start - LOOP_PRE_ROLL)
-              e.currentTarget.currentTime = start
-              setCurrentTime(start)
-              void e.currentTarget.play().catch(() => {})
-            } else {
-              setIsPlaying(false)
+          onEnded={() => {
+            setIsPlaying(false)
+            preRollArmedRef.current = true
+          }}
+          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+          onSeeked={(e) => {
+            setCurrentTime(e.currentTarget.currentTime)
+            if (!preRoll && e.currentTarget.paused) {
+              preRollArmedRef.current = e.currentTarget.currentTime <= 0.05
             }
           }}
-          onTimeUpdate={(e) => {
-            wrapLoopPlayback(e.currentTarget, activeLines, activeLoopLineIdx)
-            setCurrentTime(e.currentTarget.currentTime)
-          }}
-          onSeeked={(e) => setCurrentTime(e.currentTarget.currentTime)}
           onLoadedMetadata={(e) => {
-            e.currentTarget.playbackRate = playbackRate
             const pending = pendingSeekRef.current
             if (pending) {
               pendingSeekRef.current = null
@@ -650,25 +331,41 @@ export default function KaraokePlayer({
         </audio>
       )}
 
-      {isEditing && draft ? (
-        <LyricsEditor
-          lines={draft}
-          onChange={setDraft}
-          currentTime={currentTime}
-          onSeek={seekTo}
-          issues={issues}
-          selected={selected}
-          onSelect={setSelected}
-          loopLineIdx={activeLoopLineIdx}
-          onToggleLoop={toggleLoop}
-        />
-      ) : lines.length === 0 ? (
+      {lines.length === 0 ? (
         <div className="karaoke-empty">
           <Mic2 />
           <p>No sung lyrics were detected in this audio track.</p>
         </div>
       ) : (
         <div ref={stageRef} className="karaoke-stage" aria-label="Synchronized lyrics">
+          {countdownBeat !== null && (
+            <div className="karaoke-countdown" role="status" aria-live="polite">
+              <span className="karaoke-countdown-label">Lyrics starting</span>
+              <div
+                className="karaoke-countdown-beats"
+                aria-label={`Countdown ${countdownBeat}`}
+              >
+                {([3, 2, 1] as const).map((beat) => (
+                  <span
+                    key={beat}
+                    className={`karaoke-countdown-beat${countdownBeat === beat ? ' active' : ''}${countdownBeat < beat ? ' done' : ''}`}
+                  >
+                    {beat}
+                  </span>
+                ))}
+              </div>
+              {preRoll && (
+                <div className="karaoke-countdown-actions">
+                  <button type="button" onClick={skipPreRoll}>
+                    Skip
+                  </button>
+                  <button type="button" onClick={cancelPreRoll}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {lines.map((line, lineIdx) => {
             const isActive = lineIdx === activeLineIndex
             const isPast = activeLineIndex !== -1 && lineIdx < activeLineIndex
@@ -713,15 +410,17 @@ export default function KaraokePlayer({
         </div>
       )}
 
-      <ConfirmDialog
-        open={confirmDiscard}
-        onClose={() => setConfirmDiscard(false)}
-        onConfirm={exitEditing}
-        title="Discard unsaved lyric edits?"
-        description="Your timestamp and text changes since the last save will be lost."
-        confirmLabel="Discard"
-        destructive
-      />
+      {isEditorOpen && (
+        <LyricsEditorModal
+          job={job}
+          lyricsId={lyricsId}
+          initialLines={lines}
+          docDuration={docQuery.data.summary?.duration_seconds ?? 0}
+          playableStems={playableStems}
+          stemMediaUrl={stemMediaUrl}
+          onClose={() => setIsEditorOpen(false)}
+        />
+      )}
     </div>
   )
 }

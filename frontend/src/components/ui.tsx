@@ -232,6 +232,9 @@ export function Modal({
   description,
   children,
   footer,
+  size = 'default',
+  closeOnEscape = true,
+  headerActions,
 }: {
   open: boolean
   onClose: () => void
@@ -239,21 +242,28 @@ export function Modal({
   description?: string
   children: ReactNode
   footer?: ReactNode
+  size?: 'default' | 'studio'
+  closeOnEscape?: boolean
+  headerActions?: ReactNode
 }) {
   useEffect(() => {
-    if (!open) return
+    if (!open || !closeOnEscape) return
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [onClose, open])
+  }, [closeOnEscape, onClose, open])
 
   if (!open) return null
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <div
+      className={cn('modal-backdrop', size === 'studio' && 'modal-backdrop-studio')}
+      role="presentation"
+      onMouseDown={onClose}
+    >
       <section
-        className="modal"
+        className={cn('modal', size === 'studio' && 'modal-studio')}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -264,9 +274,12 @@ export function Modal({
             <h2 id="modal-title">{title}</h2>
             {description && <p>{description}</p>}
           </div>
-          <button className="icon-button" aria-label="Close dialog" onClick={onClose}>
-            <X />
-          </button>
+          <div className="modal-header-actions">
+            {headerActions}
+            <button className="icon-button" aria-label="Close dialog" onClick={onClose}>
+              <X />
+            </button>
+          </div>
         </header>
         <div className="modal-body">{children}</div>
         {footer && <footer>{footer}</footer>}

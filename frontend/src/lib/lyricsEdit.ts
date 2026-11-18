@@ -6,6 +6,8 @@ export const FINE_NUDGE_STEP = 0.01
 export const LOOP_PRE_ROLL = 0.25
 export const LOOP_POST_ROLL = 0.15
 export const PLAYBACK_RATES = [0.5, 0.75, 1] as const
+export const ZOOM_WINDOWS = [3, 6, 12] as const
+export const COUNTDOWN_SECONDS = 3
 const TIME_TOLERANCE = 0.001
 
 export type WordEdge = 'start' | 'end' | 'both'
@@ -79,15 +81,29 @@ export function retimeLineText(line: LyricsLine, newText: string): LyricsLine {
   return recomputeLineBounds({ ...line, words })
 }
 
-function updateWord(
-  lines: LyricsLine[],
-  ref: WordRef,
-  fn: (word: LyricsWord) => LyricsWord,
-): LyricsLine[] {
-  const line = lines[ref.lineIdx]
-  if (!line || !line.words[ref.wordIdx]) return lines
-  const words = line.words.map((w, i) => (i === ref.wordIdx ? fn(w) : w))
-  return lines.map((l, i) => (i === ref.lineIdx ? recomputeLineBounds({ ...l, words }) : l))
+function cascadeWordBounds(words: LyricsWord[], anchorIdx: number): LyricsWord[] {
+  const result = words.map((w) => ({ ...w }))
+  for (let i = anchorIdx - 1; i >= 0; i -= 1) {
+    const nextStart = result[i + 1].start
+    if (result[i].end > nextStart) {
+      const end = round3(nextStart)
+      const start = round3(Math.min(result[i].start, end - MIN_WORD_DURATION))
+      result[i] = { ...result[i], start, end }
+    } else {
+      break
+    }
+  }
+  for (let i = anchorIdx + 1; i < result.length; i += 1) {
+    const prevEnd = result[i - 1].end
+    if (result[i].start < prevEnd) {
+      const start = round3(prevEnd)
+      const end = round3(Math.max(result[i].end, start + MIN_WORD_DURATION))
+      result[i] = { ...result[i], start, end }
+    } else {
+      break
+    }
+  }
+  return result
 }
 
 export function setWordTime(
@@ -96,13 +112,47 @@ export function setWordTime(
   edge: 'start' | 'end',
   value: number,
 ): LyricsLine[] {
-  const v = round3(Math.max(0, value))
-  return updateWord(lines, ref, (w) => {
-    if (edge === 'start') {
-      return { ...w, start: v, end: round3(Math.max(w.end, v + MIN_WORD_DURATION)) }
-    }
-    return { ...w, end: round3(Math.max(v, w.start + MIN_WORD_DURATION)) }
-  })
+  const line = lines[ref.lineIdx]
+  const word = line?.words[ref.wordIdx]
+  if (!line || !word) return lines
+
+  const minStart = round3(ref.wordIdx * MIN_WORD_DURATION)
+  const words = line.words.map((w) => ({ ...w }))
+  if (edge === 'start') {
+    const start = round3(Math.max(minStart, value))
+    const end = round3(Math.max(word.end, start + MIN_WORD_DURATION))
+    words[ref.wordIdx] = { ...word, start, end }
+  } else {
+    const end = round3(Math.max(value, word.start + MIN_WORD_DURATION))
+    words[ref.wordIdx] = { ...word, end }
+  }
+
+  const cascaded = cascadeWordBounds(words, ref.wordIdx)
+  return lines.map((l, i) =>
+    i === ref.lineIdx ? recomputeLineBounds({ ...l, words: cascaded }) : l,
+  )
+}
+
+export function moveWord(
+  lines: LyricsLine[],
+  ref: WordRef,
+  newStart: number,
+): LyricsLine[] {
+  const line = lines[ref.lineIdx]
+  const word = line?.words[ref.wordIdx]
+  if (!line || !word) return lines
+
+  const minStart = round3(ref.wordIdx * MIN_WORD_DURATION)
+  const span = round3(Math.max(MIN_WORD_DURATION, word.end - word.start))
+  const start = round3(Math.max(minStart, newStart))
+  const end = round3(start + span)
+  const words = line.words.map((w, i) =>
+    i === ref.wordIdx ? { ...w, start, end } : { ...w },
+  )
+  const cascaded = cascadeWordBounds(words, ref.wordIdx)
+  return lines.map((l, i) =>
+    i === ref.lineIdx ? recomputeLineBounds({ ...l, words: cascaded }) : l,
+  )
 }
 
 export function nudgeWord(
@@ -114,14 +164,56 @@ export function nudgeWord(
   const word = lines[ref.lineIdx]?.words[ref.wordIdx]
   if (!word) return lines
   if (edge === 'both') {
-    const shift = Math.max(delta, -word.start)
-    return updateWord(lines, ref, (w) => ({
-      ...w,
-      start: round3(w.start + shift),
-      end: round3(w.end + shift),
-    }))
+    return moveWord(lines, ref, word.start + delta)
   }
   return setWordTime(lines, ref, edge, word[edge] + delta)
+}
+
+export function wordProgressPct(word: LyricsWord, currentTime: number): number {
+  if (currentTime <= word.start) return 0
+  if (currentTime >= word.end) return 100
+  const span = Math.max(MIN_WORD_DURATION, word.end - word.start)
+  return Math.min(100, Math.max(0, ((currentTime - word.start) / span) * 100))
+}
+
+export function findActiveLineIndex(lines: LyricsLine[], currentTime: number): number {
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    if (currentTime >= line.start && currentTime <= line.end) {
+      return i
+    }
+    if (currentTime < line.start) {
+      return i > 0 && currentTime - lines[i - 1].end < 1.0 ? i - 1 : i
+    }
+  }
+  return lines.length > 0 ? lines.length - 1 : -1
+}
+
+export function getPreRollDelay(lines: LyricsLine[], enabled: boolean): number {
+  if (!enabled || lines.length === 0) return 0
+  const firstStart = lines[0].start
+  if (firstStart >= COUNTDOWN_SECONDS) return 0
+  return round3(Math.max(0, COUNTDOWN_SECONDS - firstStart))
+}
+
+export function getCountdownBeat(
+  lines: LyricsLine[],
+  currentTime: number,
+  isPlaying: boolean,
+  preRollLeft: number | null,
+  enabled: boolean,
+): 3 | 2 | 1 | null {
+  if (!enabled || lines.length === 0) return null
+  const firstStart = lines[0].start
+  if (preRollLeft !== null) {
+    const remaining = firstStart + Math.max(0, preRollLeft)
+    if (remaining <= 0) return null
+    return Math.min(COUNTDOWN_SECONDS, Math.max(1, Math.ceil(remaining))) as 3 | 2 | 1
+  }
+  if (!isPlaying) return null
+  const remaining = firstStart - currentTime
+  if (remaining <= 0 || remaining > COUNTDOWN_SECONDS) return null
+  return Math.min(COUNTDOWN_SECONDS, Math.max(1, Math.ceil(remaining))) as 3 | 2 | 1
 }
 
 export function nextWordRef(

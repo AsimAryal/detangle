@@ -556,6 +556,38 @@ select {
   padding: 22px;
 }
 
+.modal-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-studio {
+  width: min(1120px, 100%);
+  height: min(880px, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-studio > header {
+  align-items: center;
+  padding: 14px 18px;
+  gap: 12px;
+}
+
+.modal-studio > .modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
 .modal > footer {
   display: flex;
   justify-content: flex-end;
@@ -4242,44 +4274,443 @@ svg.at-surface-svg {
   gap: 0.5rem;
 }
 
-/* Lyrics editor */
-.lyrics-editor {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  max-height: 32rem;
-  overflow-y: auto;
-  padding: 0 0.75rem 0.75rem;
-  border-radius: 0.75rem;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+.karaoke-countdown-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
-.lyrics-editor-word-tools {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+.karaoke-countdown-toggle svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.karaoke-countdown {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem 1rem;
-  margin: 0 -0.75rem;
-  padding: 0.7rem 0.75rem;
-  background: rgba(9, 14, 26, 0.97);
-  border-bottom: 1px solid rgba(73, 214, 194, 0.25);
+  justify-content: center;
+  gap: 0.65rem 1rem;
+  padding: 0.6rem 1rem;
+  margin: 0 auto;
+  border-radius: 999px;
+  border: 1px solid rgba(73, 214, 194, 0.35);
+  background: rgba(9, 17, 29, 0.9);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
 
-.lyrics-editor-word-label {
+.karaoke-countdown-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.karaoke-countdown-beats {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.karaoke-countdown-beat {
+  display: inline-grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-weight: 700;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.45;
+  transition: transform 140ms ease, opacity 140ms ease, border-color 140ms ease;
+}
+
+.karaoke-countdown-beat.active {
+  opacity: 1;
+  transform: scale(1.18);
+  border-color: #49d6c2;
+  background: rgba(73, 214, 194, 0.2);
+  color: #9bf5e8;
+  box-shadow: 0 0 14px rgba(73, 214, 194, 0.35);
+}
+
+.karaoke-countdown-beat.done {
+  opacity: 0.22;
+}
+
+.karaoke-player-shell.fullscreen .karaoke-countdown-beat {
+  width: 2.6rem;
+  height: 2.6rem;
+  font-size: 1.35rem;
+}
+
+.karaoke-countdown-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.karaoke-countdown-actions button {
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 23, 42, 0.85);
+  color: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.karaoke-countdown-actions button:hover {
+  border-color: #49d6c2;
+}
+
+/* Lyrics studio modal & timeline */
+.studio-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.studio-header-actions .button {
+  min-height: 34px;
+  padding: 5px 11px;
+  font-size: 0.82rem;
+}
+
+.studio-workspace {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-width: 8rem;
-  font-size: 0.85rem;
+  background: #08121a;
 }
 
-.lyrics-editor-word-label span {
+.studio-audio {
+  display: none;
+}
+
+.studio-shortcuts-drawer {
+  padding: 0.65rem 1.1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 14, 26, 0.9);
+  font-size: 0.78rem;
+}
+
+.studio-shortcuts-drawer table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.studio-shortcuts-drawer th,
+.studio-shortcuts-drawer td {
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.studio-shortcuts-drawer th {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: #9bf5e8;
+  white-space: nowrap;
+}
+
+.studio-top-deck {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(11, 22, 32, 0.92);
+}
+
+.studio-glow-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-height: 3.8rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.65rem;
+  background: radial-gradient(circle at top, rgba(73, 214, 194, 0.1), rgba(6, 11, 20, 0.85));
+  border: 1px solid rgba(73, 214, 194, 0.18);
+}
+
+.studio-preview-line {
+  font-size: 1.2rem;
+  transform: none;
+}
+
+.karaoke-word.preview-selected {
+  text-decoration: underline;
+  text-decoration-color: #49d6c2;
+  text-underline-offset: 4px;
+}
+
+.studio-preview-next {
+  font-size: 0.85rem;
+  opacity: 0.45;
+  text-align: center;
+}
+
+.studio-transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem 0.9rem;
+}
+
+.studio-transport .button {
+  min-height: 34px;
+  padding: 5px 12px;
+  font-size: 0.82rem;
+}
+
+.studio-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.timeline-overview {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.timeline-clock {
+  min-width: 3.8rem;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.timeline-clock:last-child {
+  text-align: right;
+}
+
+.timeline-overview-track {
+  position: relative;
+  flex: 1;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.timeline-overview-rail {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.timeline-overview-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.timeline-overview-line.looping {
+  background: rgba(73, 214, 194, 0.45);
+}
+
+.timeline-overview-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(73, 214, 194, 0.45);
+  pointer-events: none;
+}
+
+.timeline-overview-thumb {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #49d6c2;
+  border: 2px solid #061018;
+  box-shadow: 0 0 10px rgba(73, 214, 194, 0.45);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.timeline-zoomed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.timeline-zoomed-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  font-size: 0.76rem;
+}
+
+.timeline-zoom-pills,
+.timeline-step-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.timeline-zoom-pills > span {
+  opacity: 0.7;
+  margin-right: 0.15rem;
+}
+
+.timeline-step-group button {
+  padding: 0.22rem 0.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.75);
+  color: inherit;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.timeline-step-group button:hover {
+  border-color: #49d6c2;
+}
+
+.timeline-window-status {
   opacity: 0.7;
   font-variant-numeric: tabular-nums;
+}
+
+.timeline-zoomed-viewport {
+  position: relative;
+  height: 84px;
+  border-radius: 0.6rem;
+  background: rgba(6, 12, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.timeline-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.timeline-words-layer {
+  position: absolute;
+  inset: 18px 0 6px;
+  pointer-events: none;
+}
+
+.timeline-word-block {
+  position: absolute;
+  top: 6px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: linear-gradient(
+    90deg,
+    rgba(73, 214, 194, 0.28) var(--karaoke-fill, 0%),
+    rgba(15, 23, 42, 0.82) var(--karaoke-fill, 0%)
+  );
+  color: #e2e8f0;
+  font-size: 0.76rem;
+  overflow: visible;
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.timeline-word-block.current {
+  border-color: rgba(73, 214, 194, 0.75);
+}
+
+.timeline-word-block.selected {
+  border-color: #49d6c2;
+  box-shadow: 0 0 0 2px rgba(73, 214, 194, 0.32);
+  z-index: 2;
+}
+
+.timeline-word-label {
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.timeline-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.timeline-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+}
+
+.timeline-handle-start {
+  left: -2px;
+  border-left: 3px solid rgba(73, 214, 194, 0.85);
+  border-radius: 0.3rem 0 0 0.3rem;
+}
+
+.timeline-handle-end {
+  right: -2px;
+  border-right: 3px solid rgba(245, 158, 11, 0.9);
+  border-radius: 0 0.3rem 0.3rem 0;
+}
+
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #49d6c2;
+  box-shadow: 0 0 8px rgba(73, 214, 194, 0.6);
+  transform: translateX(-1px);
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Scrollable lines list inside studio */
+.lyrics-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  overflow-y: auto;
+  padding: 0.85rem 1.1rem;
+  background: rgba(10, 18, 28, 0.55);
 }
 
 .lyrics-editor-tool-group {
@@ -4302,12 +4733,12 @@ svg.at-surface-svg {
   align-items: center;
   justify-content: center;
   gap: 0.3rem;
-  min-width: 1.9rem;
-  height: 1.9rem;
-  padding: 0 0.45rem;
+  min-width: 1.95rem;
+  height: 1.95rem;
+  padding: 0 0.5rem;
   border-radius: 0.45rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(15, 23, 42, 0.85);
   color: inherit;
   font-size: 0.8rem;
   cursor: pointer;
@@ -4328,39 +4759,33 @@ svg.at-surface-svg {
 }
 
 .lyrics-editor-tool-group input {
-  width: 5.5rem;
-  height: 1.9rem;
+  width: 5.4rem;
+  height: 1.95rem;
   padding: 0 0.45rem;
   border-radius: 0.45rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(15, 23, 42, 0.85);
   color: inherit;
   font-variant-numeric: tabular-nums;
-}
-
-.lyrics-editor-hint {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: 0.72rem;
-  opacity: 0.55;
 }
 
 .lyrics-editor-line {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.55rem 0.65rem;
-  border-radius: 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(9, 14, 26, 0.55);
-}
-
-.lyrics-editor-line:first-child {
-  margin-top: 0.75rem;
+  gap: 0.45rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(13, 24, 36, 0.75);
 }
 
 .lyrics-editor-line.active {
   border-color: rgba(73, 214, 194, 0.45);
+}
+
+.lyrics-editor-line.looping {
+  border-color: rgba(73, 214, 194, 0.75);
+  background: rgba(21, 94, 84, 0.2);
 }
 
 .lyrics-editor-line.has-issue {
@@ -4388,35 +4813,36 @@ svg.at-surface-svg {
 .lyrics-editor-text {
   flex: 1;
   min-width: 0;
-  height: 2rem;
-  padding: 0 0.6rem;
+  height: 2.05rem;
+  padding: 0 0.65rem;
   border-radius: 0.45rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(15, 23, 42, 0.85);
   color: inherit;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
 }
 
 .lyrics-editor-words {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.38rem;
   padding-left: 2.1rem;
 }
 
 .lyrics-editor-word {
-  padding: 0.2rem 0.55rem;
+  padding: 0.24rem 0.6rem;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(15, 23, 42, 0.75);
   color: inherit;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   cursor: pointer;
 }
 
 .lyrics-editor-word.current {
-  background: rgba(73, 214, 194, 0.16);
+  background: rgba(73, 214, 194, 0.18);
+  border-color: rgba(73, 214, 194, 0.45);
 }
 
 .lyrics-editor-word.selected {
@@ -4430,11 +4856,6 @@ svg.at-surface-svg {
   padding-left: 2.1rem;
   font-size: 0.75rem;
   color: #fbbf24;
-}
-
-.lyrics-editor-line.looping {
-  border-color: rgba(73, 214, 194, 0.7);
-  background: rgba(21, 94, 84, 0.16);
 }
 
 .lyrics-editor-icon-button.active {
@@ -4459,37 +4880,152 @@ svg.at-surface-svg {
   height: 0.85rem;
 }
 
-.lyrics-editor-help {
-  margin-top: 0.65rem;
-  padding: 0.45rem 0.65rem;
-  border-radius: 0.55rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(9, 14, 26, 0.45);
-  font-size: 0.8rem;
+/* Docked bottom word inspector */
+.studio-inspector {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  padding: 0.75rem 1.1rem;
+  border-top: 1px solid rgba(73, 214, 194, 0.22);
+  background: #09151e;
 }
 
-.lyrics-editor-help summary {
-  cursor: pointer;
-  opacity: 0.8;
-  font-weight: 500;
+.studio-inspector-empty {
+  justify-content: center;
+  font-size: 0.82rem;
+  opacity: 0.68;
 }
 
-.lyrics-editor-help table {
-  width: 100%;
-  margin-top: 0.5rem;
-  border-collapse: collapse;
+.studio-inspector-word {
+  display: flex;
+  flex-direction: column;
+  min-width: 7.5rem;
+  font-size: 0.85rem;
 }
 
-.lyrics-editor-help th,
-.lyrics-editor-help td {
-  padding: 0.2rem 0.4rem;
-  text-align: left;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+.studio-inspector-word span {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
 }
 
-.lyrics-editor-help th {
-  width: 11rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-weight: 600;
-  color: #9bf5e8;
+.studio-inspector-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.9rem;
+}
+
+.studio-inspector-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.studio-exact-toggle,
+.studio-mobile-label {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .modal-backdrop-studio {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .modal.modal-studio {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .modal-studio > header {
+    padding: 10px 12px;
+  }
+
+  .modal-studio h2 {
+    font-size: 16px;
+  }
+
+  .studio-shortcuts-btn,
+  .studio-preview-next,
+  .studio-inspector-empty,
+  .studio-shift-group,
+  .timeline-window-status {
+    display: none;
+  }
+
+  .studio-top-deck {
+    padding: 0.55rem 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .studio-glow-preview {
+    min-height: 2.6rem;
+    padding: 0.4rem 0.6rem;
+  }
+
+  .studio-preview-line {
+    font-size: 1.02rem;
+  }
+
+  .timeline-zoomed-viewport {
+    height: 70px;
+  }
+
+  .lyrics-editor {
+    padding: 0.6rem 0.75rem;
+  }
+
+  .lyrics-editor-line-head {
+    flex-wrap: wrap;
+  }
+
+  .lyrics-editor-text {
+    flex: 1 1 100%;
+  }
+
+  .lyrics-editor-words {
+    padding-left: 0;
+  }
+
+  .studio-inspector {
+    padding: 0.6rem 0.75rem;
+    gap: 0.45rem;
+  }
+
+  .studio-inspector-word {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .studio-inspector-controls {
+    width: 100%;
+    gap: 0.45rem;
+  }
+
+  .studio-inspector .studio-exact-input {
+    display: none;
+  }
+
+  .studio-inspector.show-exact .studio-exact-input {
+    display: inline-flex;
+  }
+
+  .studio-exact-toggle,
+  .studio-mobile-label {
+    display: inline;
+  }
+
+  .lyrics-editor-tool-group button,
+  .lyrics-editor-play {
+    min-width: 2.3rem;
+    height: 2.3rem;
+  }
 }

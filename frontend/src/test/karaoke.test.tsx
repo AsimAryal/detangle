@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { KaraokeLyricsPanel } from '../components/KaraokeLyricsPanel'
@@ -282,6 +282,108 @@ describe('KaraokePlayer', () => {
     fireEvent.click(wordBtn)
     expect(audio.currentTime).toBe(1.0)
   })
+
+  it('shows 3-2-1 countdown during instrumental intro and hides when toggled off', async () => {
+    const doc: LyricsDocument = {
+      version: 1,
+      title: 'Intro Song',
+      model: 'large-v3-turbo',
+      summary: {
+        language: 'en',
+        line_count: 1,
+        word_count: 2,
+        duration_seconds: 8.0,
+        llm_refined: false,
+        aligned_with_reference: false,
+      },
+      lines: [
+        {
+          index: 0,
+          start: 5.0,
+          end: 6.0,
+          text: 'Sing along',
+          words: [
+            { word: 'Sing', start: 5.0, end: 5.4 },
+            { word: 'along', start: 5.5, end: 6.0 },
+          ],
+        },
+      ],
+    }
+    vi.spyOn(api, 'lyricsDocument').mockResolvedValue(doc)
+
+    const { container } = renderWithProviders(
+      <KaraokePlayer job={baseJob} lyricsId="l-1" />,
+    )
+
+    await screen.findByRole('button', { name: 'Sing' })
+    const audio = container.querySelector('audio') as HTMLAudioElement
+
+    fireEvent.play(audio)
+    audio.currentTime = 2.5
+    fireEvent.timeUpdate(audio)
+    expect(screen.getByLabelText('Countdown 3')).toBeInTheDocument()
+
+    audio.currentTime = 4.2
+    fireEvent.timeUpdate(audio)
+    expect(screen.getByLabelText('Countdown 1')).toBeInTheDocument()
+
+    audio.currentTime = 5.0
+    fireEvent.timeUpdate(audio)
+    expect(screen.queryByLabelText(/Countdown/i)).not.toBeInTheDocument()
+
+    audio.currentTime = 2.5
+    fireEvent.timeUpdate(audio)
+    expect(screen.getByLabelText('Countdown 3')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /3·2·1 Countdown/i }))
+    expect(screen.queryByLabelText(/Countdown/i)).not.toBeInTheDocument()
+  })
+
+  it('delays song playback at t=0 when lyrics begin before 3s and supports skipping', async () => {
+    const doc: LyricsDocument = {
+      version: 1,
+      title: 'Immediate Song',
+      model: 'large-v3-turbo',
+      summary: {
+        language: 'en',
+        line_count: 1,
+        word_count: 1,
+        duration_seconds: 2.0,
+        llm_refined: false,
+        aligned_with_reference: false,
+      },
+      lines: [
+        {
+          index: 0,
+          start: 0,
+          end: 1.0,
+          text: 'Now',
+          words: [{ word: 'Now', start: 0, end: 1.0 }],
+        },
+      ],
+    }
+    vi.spyOn(api, 'lyricsDocument').mockResolvedValue(doc)
+    const playMock = vi.fn().mockResolvedValue(undefined)
+    const pauseMock = vi.fn()
+    HTMLMediaElement.prototype.play = playMock
+    HTMLMediaElement.prototype.pause = pauseMock
+
+    const { container } = renderWithProviders(
+      <KaraokePlayer job={baseJob} lyricsId="l-1" />,
+    )
+
+    await screen.findByRole('button', { name: 'Now' })
+    const audio = container.querySelector('audio') as HTMLAudioElement
+
+    fireEvent.play(audio)
+    expect(pauseMock).toHaveBeenCalled()
+    expect(screen.getByLabelText('Countdown 3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(playMock).toHaveBeenCalled()
+    expect(screen.queryByLabelText(/Countdown/i)).not.toBeInTheDocument()
+  })
 })
 
 function editDoc(): LyricsDocument {
@@ -332,7 +434,10 @@ async function openEditor() {
   HTMLMediaElement.prototype.pause = vi.fn()
   const utils = renderWithProviders(<KaraokePlayer job={baseJob} lyricsId="l-1" />)
   await userEvent.click(await screen.findByRole('button', { name: /Edit lyrics/i }))
-  return utils
+  const dialog = screen.getByRole('dialog')
+  const modal = within(dialog)
+  const editorAudio = modal.getByLabelText('Lyrics editor audio') as HTMLAudioElement
+  return { ...utils, dialog, modal, editorAudio }
 }
 
 describe('KaraokePlayer edit mode', () => {
@@ -340,90 +445,152 @@ describe('KaraokePlayer edit mode', () => {
     vi.restoreAllMocks()
   })
 
-  it('opens the editor with save disabled until changes are made', async () => {
-    await openEditor()
-    expect(screen.getByLabelText('Line 1 text')).toHaveValue('Sing along')
-    expect(screen.getByRole('button', { name: /Save changes/i })).toBeDisabled()
+  it('opens studio modal defaulted to vocals with save disabled until changes are made', async () => {
+    const { dialog, modal, editorAudio } = await openEditor()
+    expect(dialog).toBeInTheDocument()
+    expect(editorAudio.getAttribute('src')).toContain('/stems/vocals')
+    expect(modal.getByLabelText('Line 1 text')).toHaveValue('Sing along')
+    expect(modal.getByRole('button', { name: /^Save$/i })).toBeDisabled()
   })
 
-  it('saves edited line text', async () => {
+  it('saves edited line text and keeps modal open with dirty state cleared', async () => {
     const saveSpy = vi.spyOn(api, 'saveLyricsDocument').mockResolvedValue(savedExtraction)
-    await openEditor()
-    const input = screen.getByLabelText('Line 1 text')
+    const { modal } = await openEditor()
+    const input = modal.getByLabelText('Line 1 text')
     await userEvent.clear(input)
     await userEvent.type(input, 'Sing loud')
     fireEvent.blur(input)
-    const saveBtn = screen.getByRole('button', { name: /Save changes/i })
+
+    const saveBtn = modal.getByRole('button', { name: /^Save$/i })
     expect(saveBtn).toBeEnabled()
     await userEvent.click(saveBtn)
     expect(saveSpy).toHaveBeenCalledWith('job-karaoke-1', 'l-1', {
       lines: [expect.objectContaining({ text: 'Sing loud' })],
     })
+
+    // Stays open, clears dirty indicator, Done closes without prompt
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(modal.getByRole('button', { name: /^Save$/i })).toBeDisabled()
+    await userEvent.click(modal.getByRole('button', { name: /^Done$/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('nudges the selected word start', async () => {
-    await openEditor()
-    await userEvent.click(screen.getByRole('button', { name: 'along' }))
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1)
-    await userEvent.click(screen.getByRole('button', { name: 'Nudge start later' }))
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
+    const { modal } = await openEditor()
+    await userEvent.click(modal.getByRole('button', { name: 'along' }))
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(1)
+    await userEvent.click(modal.getByRole('button', { name: 'Nudge start later' }))
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
   })
 
-  it('asks before discarding unsaved changes', async () => {
-    await openEditor()
-    await userEvent.click(screen.getByRole('button', { name: 'Sing' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Shift word later' }))
-    await userEvent.click(screen.getByRole('button', { name: /^Cancel$/i }))
+  it('updates live karaoke glow immediately when increasing word end and pushes neighbor', async () => {
+    const { modal, editorAudio } = await openEditor()
+    await userEvent.click(modal.getByRole('button', { name: 'Sing' }))
+
+    editorAudio.currentTime = 0.85
+    fireEvent.timeUpdate(editorAudio)
+    const previewSing = modal.getByText('Sing', { selector: '[data-preview-word]' })
+    expect(previewSing).toHaveStyle({ '--karaoke-fill': '87.5%' })
+
+    const endInput = modal.getByLabelText('Word end (seconds)')
+    await userEvent.clear(endInput)
+    await userEvent.type(endInput, '1.200')
+    fireEvent.blur(endInput)
+
+    // (0.85 - 0.50) / (1.20 - 0.50) = 50.0% without saving first
+    expect(previewSing).toHaveStyle({ '--karaoke-fill': '50.0%' })
+    // Neighbor 'along' pushed to start at 1.200
+    await userEvent.click(modal.getByRole('button', { name: 'along' }))
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(1.2)
+  })
+
+  it('seeks via full-song seekbar and drags word edge in zoomed timeline as one undo step', async () => {
+    const { modal, editorAudio } = await openEditor()
+
+    // Overview seekbar step via keyboard
+    const seekbar = modal.getByRole('slider', { name: 'Song seekbar' })
+    fireEvent.keyDown(seekbar, { key: 'ArrowRight' })
+    expect(editorAudio.currentTime).toBe(1)
+    fireEvent.keyDown(seekbar, { key: 'ArrowLeft' })
+    expect(editorAudio.currentTime).toBe(0)
+
+    // Drag Sing's end handle in 6s zoomed window (600px wide => 100px/sec)
+    const viewport = modal.getByLabelText('Zoomed waveform timeline')
+    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 600,
+      bottom: 84,
+      width: 600,
+      height: 84,
+      toJSON: () => ({}),
+    })
+
+    const endHandle = modal.getByRole('button', { name: 'Resize Sing end' })
+    fireEvent.pointerDown(endHandle, { clientX: 90, pointerId: 1 })
+    fireEvent.pointerMove(viewport, { clientX: 120, pointerId: 1 })
+    fireEvent.pointerUp(viewport, { clientX: 120, pointerId: 1 })
+
+    expect(modal.getByLabelText('Word end (seconds)')).toHaveValue(1.2)
+    await userEvent.click(modal.getByRole('button', { name: 'Undo' }))
+    expect(modal.getByLabelText('Word end (seconds)')).toHaveValue(0.9)
+  })
+
+  it('asks before discarding unsaved changes when closing', async () => {
+    const { modal } = await openEditor()
+    await userEvent.click(modal.getByRole('button', { name: 'Sing' }))
+    await userEvent.click(modal.getByRole('button', { name: 'Shift word later' }))
+    await userEvent.click(modal.getByRole('button', { name: /^Done$/i }))
     expect(await screen.findByText(/Discard unsaved lyric edits\?/i)).toBeInTheDocument()
   })
 
   it('stamps word end with ] and advances selection, then shifts with Alt+ArrowRight', async () => {
-    const { container } = await openEditor()
-    const audio = container.querySelector('audio') as HTMLAudioElement
+    const { modal, editorAudio } = await openEditor()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Sing' }))
-    audio.currentTime = 0.95
+    await userEvent.click(modal.getByRole('button', { name: 'Sing' }))
+    editorAudio.currentTime = 0.95
     fireEvent.keyDown(window, { key: ']' })
 
     // Selection moved to 'along' (start 1.000) and 'Sing' end became 0.95
-    expect(screen.getByRole('button', { name: 'along' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1)
+    expect(modal.getByRole('button', { name: 'along' })).toHaveAttribute('aria-pressed', 'true')
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(1)
 
     // Verify Sing end was updated to 0.950 by selecting it back
     fireEvent.keyDown(window, { key: 'ArrowLeft' })
-    expect(screen.getByRole('button', { name: 'Sing' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('Word end (seconds)')).toHaveValue(0.95)
+    expect(modal.getByRole('button', { name: 'Sing' })).toHaveAttribute('aria-pressed', 'true')
+    expect(modal.getByLabelText('Word end (seconds)')).toHaveValue(0.95)
 
     // Alt+ArrowRight shifts selected word ('Sing') by +0.05
     fireEvent.keyDown(window, { key: 'ArrowRight', altKey: true })
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(0.55)
-    expect(screen.getByLabelText('Word end (seconds)')).toHaveValue(1)
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(0.55)
+    expect(modal.getByLabelText('Word end (seconds)')).toHaveValue(1)
   })
 
   it('supports [, Space, Esc, and Ctrl+S shortcuts and ignores editing keys inside inputs', async () => {
     const saveSpy = vi.spyOn(api, 'saveLyricsDocument').mockResolvedValue(savedExtraction)
-    const { container } = await openEditor()
-    const audio = container.querySelector('audio') as HTMLAudioElement
+    const { modal, editorAudio } = await openEditor()
 
     // Space toggles play/pause
-    Object.defineProperty(audio, 'paused', { value: true, configurable: true })
+    Object.defineProperty(editorAudio, 'paused', { value: true, configurable: true })
     fireEvent.keyDown(window, { key: ' ' })
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
 
     // Pressing [ when nothing is selected selects the first word without mutating it
     fireEvent.keyDown(window, { key: '[' })
-    expect(screen.getByRole('button', { name: 'Sing' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(0.5)
+    expect(modal.getByRole('button', { name: 'Sing' })).toHaveAttribute('aria-pressed', 'true')
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(0.5)
 
     // Pressing ] inside an input is ignored
-    const lineInput = screen.getByLabelText('Line 1 text')
-    audio.currentTime = 0.8
+    const lineInput = modal.getByLabelText('Line 1 text')
+    editorAudio.currentTime = 0.8
     fireEvent.keyDown(lineInput, { key: ']' })
-    expect(screen.getByRole('button', { name: 'Sing' })).toHaveAttribute('aria-pressed', 'true')
+    expect(modal.getByRole('button', { name: 'Sing' })).toHaveAttribute('aria-pressed', 'true')
 
     // Pressing [ outside inputs sets selected word start to playhead
     fireEvent.keyDown(window, { key: '[' })
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(0.8)
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(0.8)
 
     // Ctrl+S saves even when triggered from inside an input
     fireEvent.keyDown(lineInput, { key: 's', ctrlKey: true })
@@ -433,52 +600,50 @@ describe('KaraokePlayer edit mode', () => {
   })
 
   it('supports undo and redo via buttons and Ctrl+Z', async () => {
-    await openEditor()
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled()
+    const { modal } = await openEditor()
+    expect(modal.getByRole('button', { name: 'Undo' })).toBeDisabled()
+    expect(modal.getByRole('button', { name: 'Redo' })).toBeDisabled()
 
-    await userEvent.click(screen.getByRole('button', { name: 'along' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Nudge start later' }))
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
+    await userEvent.click(modal.getByRole('button', { name: 'along' }))
+    await userEvent.click(modal.getByRole('button', { name: 'Nudge start later' }))
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1)
+    await userEvent.click(modal.getByRole('button', { name: 'Undo' }))
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(1)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Redo' }))
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
+    await userEvent.click(modal.getByRole('button', { name: 'Redo' }))
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
 
     fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1)
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(1)
 
     fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true })
-    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
+    expect(modal.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
   })
 
   it('switches playback speed via pills and keyboard shortcuts', async () => {
-    const { container } = await openEditor()
-    const audio = container.querySelector('audio') as HTMLAudioElement
+    const { modal, editorAudio } = await openEditor()
 
-    await userEvent.click(screen.getByRole('button', { name: '0.5×' }))
-    expect(audio.playbackRate).toBe(0.5)
+    await userEvent.click(modal.getByRole('button', { name: '0.5×' }))
+    expect(editorAudio.playbackRate).toBe(0.5)
 
     fireEvent.keyDown(window, { key: '=' })
-    expect(audio.playbackRate).toBe(0.75)
+    expect(editorAudio.playbackRate).toBe(0.75)
   })
 
   it('loops the selected line with pre-roll and post-roll boundaries', async () => {
-    const { container } = await openEditor()
-    const audio = container.querySelector('audio') as HTMLAudioElement
-    const loopBtn = screen.getByRole('button', { name: 'Loop line 1' })
+    const { modal, editorAudio } = await openEditor()
+    const loopBtn = modal.getByRole('button', { name: 'Loop line 1' })
 
     await userEvent.click(loopBtn)
     expect(loopBtn).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText(/Looping line 1/i)).toBeInTheDocument()
+    expect(modal.getByText(/Looping line 1/i)).toBeInTheDocument()
 
-    audio.currentTime = 1.7
-    fireEvent.timeUpdate(audio)
-    expect(audio.currentTime).toBe(0.25)
+    editorAudio.currentTime = 1.7
+    fireEvent.timeUpdate(editorAudio)
+    expect(editorAudio.currentTime).toBe(0.25)
 
-    await userEvent.click(screen.getByRole('button', { name: 'Stop loop' }))
+    await userEvent.click(modal.getByRole('button', { name: 'Stop loop' }))
     expect(loopBtn).toHaveAttribute('aria-pressed', 'false')
   })
 })

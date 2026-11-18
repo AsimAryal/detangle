@@ -1,4 +1,4 @@
-import { Crosshair, Minus, Play, Plus } from 'lucide-react'
+import { Crosshair, Minus, Play, Plus, Repeat } from 'lucide-react'
 import { useState, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   FINE_NUDGE_STEP,
@@ -21,6 +21,8 @@ export interface LyricsEditorProps {
   issues: LyricsIssue[]
   selected: WordRef | null
   onSelect: (ref: WordRef | null) => void
+  loopLineIdx: number | null
+  onToggleLoop: (lineIdx: number) => void
 }
 
 function stepFor(e: MouseEvent) {
@@ -116,6 +118,8 @@ export default function LyricsEditor({
   issues,
   selected,
   onSelect,
+  loopLineIdx,
+  onToggleLoop,
 }: LyricsEditorProps) {
   const selectedWord = selected ? lines[selected.lineIdx]?.words[selected.wordIdx] : undefined
 
@@ -237,6 +241,22 @@ export default function LyricsEditor({
               <td>Play from selected word</td>
             </tr>
             <tr>
+              <th>L</th>
+              <td>Toggle loop on selected / active line</td>
+            </tr>
+            <tr>
+              <th>- / =</th>
+              <td>Slower / faster playback speed</td>
+            </tr>
+            <tr>
+              <th>Ctrl/Cmd+Z</th>
+              <td>Undo</td>
+            </tr>
+            <tr>
+              <th>Ctrl/Cmd+Shift+Z / Y</th>
+              <td>Redo</td>
+            </tr>
+            <tr>
               <th>Ctrl/Cmd+S</th>
               <td>Save changes</td>
             </tr>
@@ -252,10 +272,11 @@ export default function LyricsEditor({
         const number = lineIdx + 1
         const lineIssues = issues.filter((i) => i.lineIdx === lineIdx)
         const isActive = currentTime >= line.start && currentTime <= line.end
+        const isLooping = loopLineIdx === lineIdx
         return (
           <div
             key={`${line.index}-${lineIdx}`}
-            className={`lyrics-editor-line${isActive ? ' active' : ''}${lineIssues.length ? ' has-issue' : ''}`}
+            className={`lyrics-editor-line${isActive ? ' active' : ''}${isLooping ? ' looping' : ''}${lineIssues.length ? ' has-issue' : ''}`}
           >
             <div className="lyrics-editor-line-head">
               <span className="lyrics-editor-line-number">{number}</span>
@@ -266,6 +287,16 @@ export default function LyricsEditor({
                 title="Seek to line start"
               >
                 {formatTimestamp(line.start)}–{formatTimestamp(line.end)}
+              </button>
+              <button
+                type="button"
+                className={`lyrics-editor-icon-button${isLooping ? ' active' : ''}`}
+                aria-label={`Loop line ${number}`}
+                aria-pressed={isLooping}
+                title={isLooping ? `Stop looping line ${number}` : `Loop line ${number}`}
+                onClick={() => onToggleLoop(lineIdx)}
+              >
+                <Repeat aria-hidden="true" />
               </button>
               <LineTextInput
                 line={line}

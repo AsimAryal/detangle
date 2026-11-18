@@ -350,5 +350,55 @@ describe('KaraokePlayer edit mode', () => {
       expect(saveSpy).toHaveBeenCalledTimes(1)
     })
   })
+
+  it('supports undo and redo via buttons and Ctrl+Z', async () => {
+    await openEditor()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'along' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Nudge start later' }))
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Redo' }))
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
+
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true })
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1)
+
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true })
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
+  })
+
+  it('switches playback speed via pills and keyboard shortcuts', async () => {
+    const { container } = await openEditor()
+    const audio = container.querySelector('audio') as HTMLAudioElement
+
+    await userEvent.click(screen.getByRole('button', { name: '0.5×' }))
+    expect(audio.playbackRate).toBe(0.5)
+
+    fireEvent.keyDown(window, { key: '=' })
+    expect(audio.playbackRate).toBe(0.75)
+  })
+
+  it('loops the selected line with pre-roll and post-roll boundaries', async () => {
+    const { container } = await openEditor()
+    const audio = container.querySelector('audio') as HTMLAudioElement
+    const loopBtn = screen.getByRole('button', { name: 'Loop line 1' })
+
+    await userEvent.click(loopBtn)
+    expect(loopBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText(/Looping line 1/i)).toBeInTheDocument()
+
+    audio.currentTime = 1.7
+    fireEvent.timeUpdate(audio)
+    expect(audio.currentTime).toBe(0.25)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Stop loop' }))
+    expect(loopBtn).toHaveAttribute('aria-pressed', 'false')
+  })
 })
 

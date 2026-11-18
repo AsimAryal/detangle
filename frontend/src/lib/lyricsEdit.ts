@@ -3,6 +3,9 @@ import type { LyricsDocumentEdit, LyricsLine, LyricsWord } from '../types'
 export const MIN_WORD_DURATION = 0.02
 export const NUDGE_STEP = 0.05
 export const FINE_NUDGE_STEP = 0.01
+export const LOOP_PRE_ROLL = 0.25
+export const LOOP_POST_ROLL = 0.15
+export const PLAYBACK_RATES = [0.5, 0.75, 1] as const
 const TIME_TOLERANCE = 0.001
 
 export type WordEdge = 'start' | 'end' | 'both'

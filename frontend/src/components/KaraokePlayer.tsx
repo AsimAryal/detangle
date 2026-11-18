@@ -1,10 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Maximize2, Minimize2, Mic2, Pencil, Save, Volume2, X } from 'lucide-react'
+import {
+  Maximize2,
+  Minimize2,
+  Mic2,
+  Pencil,
+  Redo2,
+  Save,
+  Undo2,
+  Volume2,
+  X,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
+import { useEditHistory } from '../lib/editHistory'
 import {
   FINE_NUDGE_STEP,
+  LOOP_POST_ROLL,
+  LOOP_PRE_ROLL,
   NUDGE_STEP,
+  PLAYBACK_RATES,
   isDirty,
   nextWordRef,
   nudgeWord,
@@ -16,6 +30,7 @@ import {
 import type { Job, LyricsLine, LyricsWord, Stem } from '../types'
 import LyricsEditor from './LyricsEditor'
 import {
+  Badge,
   Button,
   ConfirmDialog,
   ErrorState,
@@ -59,6 +74,33 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true
   const tag = target.tagName
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
+function wrapLoopPlayback(
+  audio: HTMLAudioElement,
+  sourceLines: LyricsLine[],
+  idx: number | null,
+) {
+  if (idx === null) return
+  const target = sourceLines[idx]
+  if (!target) return
+  if (audio.currentTime >= target.end + LOOP_POST_ROLL) {
+    audio.currentTime = Math.max(0, target.start - LOOP_PRE_ROLL)
+  }
+}
+
+function seekAudio(
+  audio: HTMLAudioElement | null,
+  onTime: (time: number) => void,
+  seconds: number,
+  autoplay = true,
+) {
+  if (!audio) return
+  audio.currentTime = Math.max(0, seconds)
+  onTime(audio.currentTime)
+  if (autoplay && audio.paused) {
+    void audio.play().catch(() => {})
+  }
 }
 
 function findActiveLineIndex(lines: LyricsLine[], currentTime: number): number {
@@ -117,19 +159,6 @@ export default function KaraokePlayer({
     playableStems.find((s) => s.name === selectedStemName) || defaultStem
 
   useEffect(() => {
-    if (!isPlaying) return undefined
-    let frameId = 0
-    const tick = () => {
-      if (audioRef.current) {
-        setCurrentTime(audioRef.current.currentTime)
-      }
-      frameId = window.requestAnimationFrame(tick)
-    }
-    frameId = window.requestAnimationFrame(tick)
-    return () => window.cancelAnimationFrame(frameId)
-  }, [isPlaying])
-
-  useEffect(() => {
     const onFsChange = () => {
       setIsFullscreen(Boolean(document.fullscreenElement))
     }
@@ -141,17 +170,54 @@ export default function KaraokePlayer({
   const activeLineIndex = findActiveLineIndex(lines, currentTime)
 
   const [isEditing, setIsEditing] = useState(false)
-  const [draft, setDraft] = useState<LyricsLine[] | null>(null)
+  const {
+    value: draft,
+    set: setDraft,
+    undo: undoDraft,
+    redo: redoDraft,
+    reset: resetDraft,
+    canUndo,
+    canRedo,
+  } = useEditHistory<LyricsLine[] | null>(null)
   const [selected, setSelected] = useState<WordRef | null>(null)
+  const [loopLineIdx, setLoopLineIdx] = useState<number | null>(null)
+  const [playbackRate, setPlaybackRate] = useState<number>(1)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+
+  const activeLines = draft ?? lines
+  const activeLoopLineIdx =
+    loopLineIdx !== null && loopLineIdx < activeLines.length ? loopLineIdx : null
+
+  useEffect(() => {
+    if (!isPlaying) return undefined
+    let frameId = 0
+    const tick = () => {
+      const audio = audioRef.current
+      if (audio) {
+        wrapLoopPlayback(audio, activeLines, activeLoopLineIdx)
+        setCurrentTime(audio.currentTime)
+      }
+      frameId = window.requestAnimationFrame(tick)
+    }
+    frameId = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frameId)
+  }, [isPlaying, activeLines, activeLoopLineIdx])
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate
+    }
+  }, [playbackRate, activeStem?.name])
 
   const dirty = draft ? isDirty(lines, draft) : false
   const issues = useMemo(() => (draft ? validateLines(draft) : []), [draft])
 
   const exitEditing = () => {
     setIsEditing(false)
-    setDraft(null)
+    resetDraft(null)
     setSelected(null)
+    setLoopLineIdx(null)
+    setPlaybackRate(1)
     setConfirmDiscard(false)
   }
 
@@ -173,8 +239,10 @@ export default function KaraokePlayer({
     if (document.fullscreenElement) {
       await document.exitFullscreen().catch(() => {})
     }
-    setDraft(structuredClone(lines))
+    resetDraft(structuredClone(lines))
     setSelected(null)
+    setLoopLineIdx(null)
+    setPlaybackRate(1)
     setIsEditing(true)
   }
 
@@ -183,6 +251,41 @@ export default function KaraokePlayer({
       setConfirmDiscard(true)
     } else {
       exitEditing()
+    }
+  }
+
+  const seekTo = (seconds: number, autoplay = true) => {
+    seekAudio(audioRef.current, setCurrentTime, seconds, autoplay)
+  }
+
+  const handleUndo = () => {
+    const next = undoDraft()
+    if (next && selected && !next[selected.lineIdx]?.words[selected.wordIdx]) {
+      setSelected(null)
+    }
+  }
+
+  const handleRedo = () => {
+    const next = redoDraft()
+    if (next && selected && !next[selected.lineIdx]?.words[selected.wordIdx]) {
+      setSelected(null)
+    }
+  }
+
+  const toggleLoop = (lineIdx: number) => {
+    if (activeLoopLineIdx === lineIdx) {
+      setLoopLineIdx(null)
+      return
+    }
+    const target = activeLines[lineIdx]
+    setLoopLineIdx(lineIdx)
+    if (target) {
+      seekAudio(
+        audioRef.current,
+        setCurrentTime,
+        Math.max(0, target.start - LOOP_PRE_ROLL),
+        true,
+      )
     }
   }
 
@@ -207,6 +310,26 @@ export default function KaraokePlayer({
         return
       }
       if (isEditableTarget(e.target)) return
+
+      if (mod && !e.altKey) {
+        const key = e.key.toLowerCase()
+        if (key === 'z' && !e.shiftKey) {
+          e.preventDefault()
+          const next = undoDraft()
+          if (next && selected && !next[selected.lineIdx]?.words[selected.wordIdx]) {
+            setSelected(null)
+          }
+          return
+        }
+        if ((key === 'z' && e.shiftKey) || (key === 'y' && !e.shiftKey)) {
+          e.preventDefault()
+          const next = redoDraft()
+          if (next && selected && !next[selected.lineIdx]?.words[selected.wordIdx]) {
+            setSelected(null)
+          }
+          return
+        }
+      }
 
       const playhead = audioRef.current?.currentTime ?? 0
       const selectedWord = selected
@@ -263,6 +386,42 @@ export default function KaraokePlayer({
         return
       }
 
+      if (e.key.toLowerCase() === 'l' && !mod && !e.altKey && !e.shiftKey) {
+        e.preventDefault()
+        const idx = selected ? selected.lineIdx : findActiveLineIndex(draft, playhead)
+        if (idx >= 0 && idx < draft.length) {
+          if (activeLoopLineIdx === idx) {
+            setLoopLineIdx(null)
+          } else {
+            const target = draft[idx]
+            setLoopLineIdx(idx)
+            if (target) {
+              seekAudio(
+                audioRef.current,
+                setCurrentTime,
+                Math.max(0, target.start - LOOP_PRE_ROLL),
+                true,
+              )
+            }
+          }
+        }
+        return
+      }
+
+      if (!mod && !e.altKey && (e.key === '-' || e.key === '_' || e.key === '=' || e.key === '+')) {
+        e.preventDefault()
+        const curIdx = PLAYBACK_RATES.indexOf(
+          playbackRate as (typeof PLAYBACK_RATES)[number],
+        )
+        const baseIdx = curIdx === -1 ? PLAYBACK_RATES.length - 1 : curIdx
+        const nextIdx =
+          e.key === '-' || e.key === '_'
+            ? Math.max(0, baseIdx - 1)
+            : Math.min(PLAYBACK_RATES.length - 1, baseIdx + 1)
+        setPlaybackRate(PLAYBACK_RATES[nextIdx])
+        return
+      }
+
       if (e.key === 'Enter' && !mod && !e.altKey && !e.shiftKey) {
         if (
           e.target instanceof HTMLElement &&
@@ -274,13 +433,7 @@ export default function KaraokePlayer({
         }
         if (!selectedWord) return
         e.preventDefault()
-        const audio = audioRef.current
-        if (!audio) return
-        audio.currentTime = Math.max(0, selectedWord.start)
-        setCurrentTime(audio.currentTime)
-        if (audio.paused) {
-          void audio.play().catch(() => {})
-        }
+        seekAudio(audioRef.current, setCurrentTime, selectedWord.start, true)
         return
       }
 
@@ -291,7 +444,19 @@ export default function KaraokePlayer({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isEditing, draft, selected, canSave, confirmDiscard, save])
+  }, [
+    isEditing,
+    draft,
+    selected,
+    canSave,
+    confirmDiscard,
+    save,
+    setDraft,
+    undoDraft,
+    redoDraft,
+    activeLoopLineIdx,
+    playbackRate,
+  ])
 
   useEffect(() => {
     if (activeLineIndex < 0) return
@@ -305,16 +470,6 @@ export default function KaraokePlayer({
       behavior: 'smooth',
     })
   }, [activeLineIndex])
-
-  const seekTo = (seconds: number, autoplay = true) => {
-    const audio = audioRef.current
-    if (!audio) return
-    audio.currentTime = Math.max(0, seconds)
-    setCurrentTime(audio.currentTime)
-    if (autoplay && audio.paused) {
-      void audio.play().catch(() => {})
-    }
-  }
 
   const switchTrack = (nextStemName: string) => {
     if (nextStemName === activeStem?.name) return
@@ -374,6 +529,52 @@ export default function KaraokePlayer({
         <div className="karaoke-toolbar-actions">
           {isEditing ? (
             <>
+              <div className="karaoke-track-pills" role="group" aria-label="Playback speed">
+                {PLAYBACK_RATES.map((rate) => (
+                  <button
+                    key={rate}
+                    type="button"
+                    className={`karaoke-track-pill${playbackRate === rate ? ' active' : ''}`}
+                    aria-pressed={playbackRate === rate}
+                    onClick={() => setPlaybackRate(rate)}
+                  >
+                    {rate}×
+                  </button>
+                ))}
+              </div>
+              {activeLoopLineIdx !== null && (
+                <Badge tone="teal">
+                  Looping line {activeLoopLineIdx + 1}
+                  <button
+                    type="button"
+                    className="lyrics-loop-stop"
+                    aria-label="Stop loop"
+                    onClick={() => setLoopLineIdx(null)}
+                  >
+                    <X aria-hidden="true" />
+                  </button>
+                </Badge>
+              )}
+              <Button
+                variant="ghost"
+                icon={Undo2}
+                aria-label="Undo"
+                title="Undo (Ctrl+Z)"
+                disabled={!canUndo}
+                onClick={handleUndo}
+              >
+                Undo
+              </Button>
+              <Button
+                variant="ghost"
+                icon={Redo2}
+                aria-label="Redo"
+                title="Redo (Ctrl+Shift+Z)"
+                disabled={!canRedo}
+                onClick={handleRedo}
+              >
+                Redo
+              </Button>
               <Button variant="ghost" icon={X} onClick={requestCancel}>
                 Cancel
               </Button>
@@ -415,10 +616,25 @@ export default function KaraokePlayer({
           src={stemMediaUrl(job.id, activeStem)}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
-          onEnded={() => setIsPlaying(false)}
-          onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+          onEnded={(e) => {
+            const target =
+              activeLoopLineIdx !== null ? activeLines[activeLoopLineIdx] : undefined
+            if (target) {
+              const start = Math.max(0, target.start - LOOP_PRE_ROLL)
+              e.currentTarget.currentTime = start
+              setCurrentTime(start)
+              void e.currentTarget.play().catch(() => {})
+            } else {
+              setIsPlaying(false)
+            }
+          }}
+          onTimeUpdate={(e) => {
+            wrapLoopPlayback(e.currentTarget, activeLines, activeLoopLineIdx)
+            setCurrentTime(e.currentTarget.currentTime)
+          }}
           onSeeked={(e) => setCurrentTime(e.currentTarget.currentTime)}
           onLoadedMetadata={(e) => {
+            e.currentTarget.playbackRate = playbackRate
             const pending = pendingSeekRef.current
             if (pending) {
               pendingSeekRef.current = null
@@ -443,6 +659,8 @@ export default function KaraokePlayer({
           issues={issues}
           selected={selected}
           onSelect={setSelected}
+          loopLineIdx={activeLoopLineIdx}
+          onToggleLoop={toggleLoop}
         />
       ) : lines.length === 0 ? (
         <div className="karaoke-empty">

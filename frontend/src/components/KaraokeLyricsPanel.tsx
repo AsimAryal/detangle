@@ -6,7 +6,9 @@ import {
   FileText,
   LoaderCircle,
   Mic2,
+  Pencil,
   RefreshCw,
+  RotateCcw,
   SlidersHorizontal,
   Sparkles,
   Trash2,
@@ -39,6 +41,8 @@ export function KaraokeLyricsPanel({ job }: KaraokeLyricsPanelProps) {
   const [useLlmCleanup, setUseLlmCleanup] = useState<boolean>(true)
   const [referenceLyrics, setReferenceLyrics] = useState<string>('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmRevert, setConfirmRevert] = useState(false)
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false)
 
   const query = useQuery({
     queryKey: ['lyrics', job.id],
@@ -70,8 +74,19 @@ export function KaraokeLyricsPanel({ job }: KaraokeLyricsPanelProps) {
     onError: (err) => toast.show(err.message, { tone: 'error' }),
   })
 
-  const submitExtract = (e?: FormEvent) => {
-    e?.preventDefault()
+  const revert = useMutation({
+    mutationFn: (lid: string) => api.revertLyrics(job.id, lid),
+    onSuccess: (_data, lid) => {
+      void queryClient.invalidateQueries({ queryKey: ['lyrics', job.id] })
+      void queryClient.invalidateQueries({ queryKey: ['lyrics-doc', job.id, lid] })
+      setConfirmRevert(false)
+      toast.show('Reverted to AI lyrics.', { tone: 'success' })
+    },
+    onError: (err) => toast.show(err.message, { tone: 'error' }),
+  })
+
+  const runExtract = () => {
+    setConfirmRegenerate(false)
     create.mutate({
       stem: defaultStem,
       model,
@@ -83,6 +98,17 @@ export function KaraokeLyricsPanel({ job }: KaraokeLyricsPanelProps) {
 
   const latest: LyricsExtraction | undefined = query.data?.[0]
   const isActive = latest && ACTIVE_STATUSES.includes(latest.status)
+  const version =
+    latest?.edited_at ?? latest?.completed_at ?? latest?.updated_at ?? null
+
+  const submitExtract = (e?: FormEvent) => {
+    e?.preventDefault()
+    if (latest?.edited_at) {
+      setConfirmRegenerate(true)
+      return
+    }
+    runExtract()
+  }
 
   if (!canExtract) {
     return (
@@ -154,6 +180,15 @@ export function KaraokeLyricsPanel({ job }: KaraokeLyricsPanelProps) {
                   {latest ? 'Regenerate lyrics' : 'Extract karaoke lyrics'}
                 </Button>
               </>
+            )}
+            {latest && latest.status === 'READY' && latest.edited_at && (
+              <Button
+                variant="ghost"
+                icon={RotateCcw}
+                onClick={() => setConfirmRevert(true)}
+              >
+                Revert to AI version
+              </Button>
             )}
             {latest && !isActive && (
               <Button
@@ -290,54 +325,80 @@ export function KaraokeLyricsPanel({ job }: KaraokeLyricsPanelProps) {
                     Refined · {latest.summary.llm_model || 'Qwen3'}
                   </Badge>
                 )}
+                {latest.edited_at && (
+                  <Badge tone="amber">
+                    <Pencil /> Edited
+                  </Badge>
+                )}
               </div>
             )}
 
             <div className="notation-download-bar">
               <a
                 className="button button-secondary"
-                href={lyricsFileUrl(job.id, latest.id, 'ass', true)}
+                href={lyricsFileUrl(job.id, latest.id, 'ass', true, version)}
               >
                 <Captions /> Download .ASS (Karaoke Video)
               </a>
               <a
                 className="button button-secondary"
-                href={lyricsFileUrl(job.id, latest.id, 'lrc', true)}
+                href={lyricsFileUrl(job.id, latest.id, 'lrc', true, version)}
               >
                 <FileText /> Download Enhanced .LRC
               </a>
               <a
                 className="button button-ghost"
-                href={lyricsFileUrl(job.id, latest.id, 'srt', true)}
+                href={lyricsFileUrl(job.id, latest.id, 'srt', true, version)}
               >
                 <FileText /> Download .SRT
               </a>
               <a
                 className="button button-ghost"
-                href={lyricsFileUrl(job.id, latest.id, 'json', true)}
+                href={lyricsFileUrl(job.id, latest.id, 'json', true, version)}
               >
                 <FileJson /> Timed JSON
               </a>
             </div>
 
             <Suspense fallback={<Skeleton className="score-canvas-skeleton" />}>
-              <KaraokePlayer job={job} lyricsId={latest.id} />
+              <KaraokePlayer job={job} lyricsId={latest.id} version={version} />
             </Suspense>
           </div>
         )}
       </div>
 
       {latest && (
-        <ConfirmDialog
-          open={confirmDelete}
-          onClose={() => setConfirmDelete(false)}
-          onConfirm={() => remove.mutate(latest.id)}
-          title="Delete timestamped lyrics?"
-          description="The generated ASS, LRC, SRT, and JSON lyrics files for this job will be removed."
-          confirmLabel="Delete lyrics"
-          destructive
-          loading={remove.isPending}
-        />
+        <>
+          <ConfirmDialog
+            open={confirmDelete}
+            onClose={() => setConfirmDelete(false)}
+            onConfirm={() => remove.mutate(latest.id)}
+            title="Delete timestamped lyrics?"
+            description="The generated ASS, LRC, SRT, and JSON lyrics files for this job, including any manual edits, will be removed."
+            confirmLabel="Delete lyrics"
+            destructive
+            loading={remove.isPending}
+          />
+          <ConfirmDialog
+            open={confirmRevert}
+            onClose={() => setConfirmRevert(false)}
+            onConfirm={() => revert.mutate(latest.id)}
+            title="Revert to the AI-generated lyrics?"
+            description="Your manual timestamp and text edits will be discarded."
+            confirmLabel="Revert to AI"
+            destructive
+            loading={revert.isPending}
+          />
+          <ConfirmDialog
+            open={confirmRegenerate}
+            onClose={() => setConfirmRegenerate(false)}
+            onConfirm={runExtract}
+            title="Regenerate lyrics?"
+            description="A new AI extraction will replace the edited version shown here. Your edits stay saved on the previous extraction but won't be displayed."
+            confirmLabel="Regenerate"
+            loading={create.isPending}
+          />
+        </>
       )}
     </section>
   )

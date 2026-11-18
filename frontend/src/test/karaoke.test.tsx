@@ -143,14 +143,95 @@ describe('KaraokeLyricsPanel', () => {
     })
     expect(screen.getByRole('link', { name: /\.ASS/i })).toHaveAttribute(
       'href',
-      '/api/jobs/job-karaoke-1/lyrics/l-ready/files/ass?download=1',
+      '/api/jobs/job-karaoke-1/lyrics/l-ready/files/ass?download=1&v=2026-11-15T18%3A02%3A00Z',
     )
     expect(screen.getByRole('link', { name: /\.LRC/i })).toHaveAttribute(
       'href',
-      '/api/jobs/job-karaoke-1/lyrics/l-ready/files/lrc?download=1',
+      '/api/jobs/job-karaoke-1/lyrics/l-ready/files/lrc?download=1&v=2026-11-15T18%3A02%3A00Z',
     )
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Hello' })).toBeInTheDocument()
+    })
+  })
+
+  it('shows Edited badge, revert flow, and regenerate warning when edited_at is set', async () => {
+    const editedItem: LyricsExtraction = {
+      id: 'l-ready',
+      job_id: 'job-karaoke-1',
+      stem_name: 'vocals',
+      model: 'large-v3-turbo',
+      status: 'READY',
+      progress_pct: 100,
+      options: { model: 'large-v3-turbo', use_llm_cleanup: true },
+      summary: {
+        language: 'en',
+        line_count: 1,
+        word_count: 2,
+        duration_seconds: 1.5,
+        llm_refined: false,
+        aligned_with_reference: false,
+      },
+      files: [],
+      created_at: '2026-11-15T18:01:00Z',
+      updated_at: '2026-11-15T18:02:00Z',
+      edited_at: '2026-11-15T18:05:00Z',
+    }
+    const sampleDoc: LyricsDocument = {
+      version: 1,
+      title: 'Karaoke Song',
+      model: 'large-v3-turbo',
+      summary: editedItem.summary!,
+      lines: [
+        {
+          index: 0,
+          start: 0.2,
+          end: 1.2,
+          text: 'Hello world',
+          words: [
+            { word: 'Hello', start: 0.2, end: 0.6 },
+            { word: 'world', start: 0.7, end: 1.2 },
+          ],
+        },
+      ],
+    }
+
+    vi.spyOn(api, 'lyrics').mockResolvedValue([editedItem])
+    vi.spyOn(api, 'lyricsDocument').mockResolvedValue(sampleDoc)
+    const revertSpy = vi.spyOn(api, 'revertLyrics').mockResolvedValue({
+      ...editedItem,
+      edited_at: null,
+    })
+    const createSpy = vi.spyOn(api, 'createLyrics').mockResolvedValue({
+      ...editedItem,
+      status: 'QUEUED',
+      edited_at: null,
+    })
+
+    renderWithProviders(<KaraokeLyricsPanel job={baseJob} />)
+
+    expect(await screen.findByText('Edited')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /\.ASS/i })).toHaveAttribute(
+      'href',
+      expect.stringContaining('&v=2026-11-15T18%3A05%3A00Z'),
+    )
+
+    // Regenerate warns first
+    await userEvent.click(screen.getByRole('button', { name: /Regenerate lyrics/i }))
+    expect(await screen.findByText(/Regenerate lyrics\?/i)).toBeInTheDocument()
+    expect(createSpy).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: /^Regenerate$/i }))
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledTimes(1)
+    })
+
+    // Revert asks confirmation then calls revertLyrics
+    await userEvent.click(screen.getByRole('button', { name: /Revert to AI version/i }))
+    expect(
+      await screen.findByText(/Revert to the AI-generated lyrics\?/i),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /Revert to AI$/i }))
+    await waitFor(() => {
+      expect(revertSpy).toHaveBeenCalledWith('job-karaoke-1', 'l-ready')
     })
   })
 })

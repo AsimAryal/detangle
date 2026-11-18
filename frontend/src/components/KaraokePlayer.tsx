@@ -1,13 +1,29 @@
-import { useQuery } from '@tanstack/react-query'
-import { Maximize2, Minimize2, Mic2, Volume2 } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Maximize2, Minimize2, Mic2, Pencil, Save, Volume2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
+import {
+  isDirty,
+  toSavePayload,
+  validateLines,
+  type WordRef,
+} from '../lib/lyricsEdit'
 import type { Job, LyricsLine, LyricsWord, Stem } from '../types'
-import { Button, ErrorState, Skeleton, formatStemLabel } from './ui'
+import LyricsEditor from './LyricsEditor'
+import {
+  Button,
+  ConfirmDialog,
+  ErrorState,
+  Skeleton,
+  formatStemLabel,
+  useToast,
+} from './ui'
 
 interface KaraokePlayerProps {
   job: Job
   lyricsId: string
+  version?: string | null
+  canEdit?: boolean
 }
 
 function stemMediaUrl(jobId: string, stem: Stem) {
@@ -46,10 +62,17 @@ function findActiveLineIndex(lines: LyricsLine[], currentTime: number): number {
   return lines.length > 0 ? lines.length - 1 : -1
 }
 
-export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
+export default function KaraokePlayer({
+  job,
+  lyricsId,
+  version = null,
+  canEdit = true,
+}: KaraokePlayerProps) {
+  const toast = useToast()
+  const queryClient = useQueryClient()
   const docQuery = useQuery({
-    queryKey: ['lyrics-doc', job.id, lyricsId],
-    queryFn: () => api.lyricsDocument(job.id, lyricsId),
+    queryKey: ['lyrics-doc', job.id, lyricsId, version ?? ''],
+    queryFn: () => api.lyricsDocument(job.id, lyricsId, version),
   })
 
   const playableStems = useMemo(() => {
@@ -102,8 +125,64 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
     return () => document.removeEventListener('fullscreenchange', onFsChange)
   }, [])
 
-  const lines = docQuery.data?.lines ?? []
+  const lines = useMemo(() => docQuery.data?.lines ?? [], [docQuery.data])
   const activeLineIndex = findActiveLineIndex(lines, currentTime)
+
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState<LyricsLine[] | null>(null)
+  const [selected, setSelected] = useState<WordRef | null>(null)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+
+  const dirty = draft ? isDirty(lines, draft) : false
+  const issues = useMemo(() => (draft ? validateLines(draft) : []), [draft])
+
+  const exitEditing = () => {
+    setIsEditing(false)
+    setDraft(null)
+    setSelected(null)
+    setConfirmDiscard(false)
+  }
+
+  const save = useMutation({
+    mutationFn: (next: LyricsLine[]) =>
+      api.saveLyricsDocument(job.id, lyricsId, toSavePayload(next)),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['lyrics', job.id] })
+      void queryClient.invalidateQueries({ queryKey: ['lyrics-doc', job.id, lyricsId] })
+      exitEditing()
+      toast.show('Lyrics saved.', { tone: 'success' })
+    },
+    onError: (err) => toast.show(err.message, { tone: 'error' }),
+  })
+
+  const canSave = Boolean(draft) && dirty && issues.length === 0 && !save.isPending
+
+  const startEditing = async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {})
+    }
+    setDraft(structuredClone(lines))
+    setSelected(null)
+    setIsEditing(true)
+  }
+
+  const requestCancel = () => {
+    if (dirty) {
+      setConfirmDiscard(true)
+    } else {
+      exitEditing()
+    }
+  }
+
+  useEffect(() => {
+    if (!dirty) return undefined
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
 
   useEffect(() => {
     if (activeLineIndex < 0) return
@@ -183,13 +262,39 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
             </button>
           ))}
         </div>
-        <Button
-          variant="ghost"
-          icon={isFullscreen ? Minimize2 : Maximize2}
-          onClick={() => void toggleFullscreen()}
-        >
-          {isFullscreen ? 'Exit stage' : 'Stage mode'}
-        </Button>
+        <div className="karaoke-toolbar-actions">
+          {isEditing ? (
+            <>
+              <Button variant="ghost" icon={X} onClick={requestCancel}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                icon={Save}
+                loading={save.isPending}
+                disabled={!canSave}
+                onClick={() => draft && save.mutate(draft)}
+              >
+                Save changes
+              </Button>
+            </>
+          ) : (
+            <>
+              {canEdit && lines.length > 0 && (
+                <Button variant="ghost" icon={Pencil} onClick={() => void startEditing()}>
+                  Edit lyrics
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                icon={isFullscreen ? Minimize2 : Maximize2}
+                onClick={() => void toggleFullscreen()}
+              >
+                {isFullscreen ? 'Exit stage' : 'Stage mode'}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {activeStem && (
@@ -220,7 +325,17 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
         </audio>
       )}
 
-      {lines.length === 0 ? (
+      {isEditing && draft ? (
+        <LyricsEditor
+          lines={draft}
+          onChange={setDraft}
+          currentTime={currentTime}
+          onSeek={seekTo}
+          issues={issues}
+          selected={selected}
+          onSelect={setSelected}
+        />
+      ) : lines.length === 0 ? (
         <div className="karaoke-empty">
           <Mic2 />
           <p>No sung lyrics were detected in this audio track.</p>
@@ -270,6 +385,16 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        onConfirm={exitEditing}
+        title="Discard unsaved lyric edits?"
+        description="Your timestamp and text changes since the last save will be lost."
+        confirmLabel="Discard"
+        destructive
+      />
     </div>
   )
 }

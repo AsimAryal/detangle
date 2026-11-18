@@ -203,3 +203,97 @@ describe('KaraokePlayer', () => {
   })
 })
 
+function editDoc(): LyricsDocument {
+  return {
+    version: 1,
+    title: 'Karaoke Song',
+    model: 'large-v3-turbo',
+    summary: {
+      language: 'en',
+      line_count: 1,
+      word_count: 2,
+      duration_seconds: 2.0,
+      llm_refined: false,
+      aligned_with_reference: false,
+    },
+    lines: [
+      {
+        index: 0,
+        start: 0.5,
+        end: 1.5,
+        text: 'Sing along',
+        words: [
+          { word: 'Sing', start: 0.5, end: 0.9 },
+          { word: 'along', start: 1.0, end: 1.5 },
+        ],
+      },
+    ],
+  }
+}
+
+const savedExtraction: LyricsExtraction = {
+  id: 'l-1',
+  job_id: 'job-karaoke-1',
+  stem_name: 'vocals',
+  model: 'large-v3-turbo',
+  status: 'READY',
+  progress_pct: 100,
+  options: { model: 'large-v3-turbo', use_llm_cleanup: true },
+  files: [],
+  created_at: '2026-11-15T18:01:00Z',
+  updated_at: '2026-11-15T18:02:00Z',
+  edited_at: '2026-11-15T18:03:00Z',
+}
+
+async function openEditor() {
+  vi.spyOn(api, 'lyricsDocument').mockResolvedValue(editDoc())
+  HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined)
+  HTMLMediaElement.prototype.pause = vi.fn()
+  const utils = renderWithProviders(<KaraokePlayer job={baseJob} lyricsId="l-1" />)
+  await userEvent.click(await screen.findByRole('button', { name: /Edit lyrics/i }))
+  return utils
+}
+
+describe('KaraokePlayer edit mode', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('opens the editor with save disabled until changes are made', async () => {
+    await openEditor()
+    expect(screen.getByLabelText('Line 1 text')).toHaveValue('Sing along')
+    expect(screen.getByRole('button', { name: /Save changes/i })).toBeDisabled()
+  })
+
+  it('saves edited line text', async () => {
+    const saveSpy = vi.spyOn(api, 'saveLyricsDocument').mockResolvedValue(savedExtraction)
+    await openEditor()
+    const input = screen.getByLabelText('Line 1 text')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Sing loud')
+    fireEvent.blur(input)
+    const saveBtn = screen.getByRole('button', { name: /Save changes/i })
+    expect(saveBtn).toBeEnabled()
+    await userEvent.click(saveBtn)
+    expect(saveSpy).toHaveBeenCalledWith('job-karaoke-1', 'l-1', {
+      lines: [expect.objectContaining({ text: 'Sing loud' })],
+    })
+  })
+
+  it('nudges the selected word start', async () => {
+    await openEditor()
+    await userEvent.click(screen.getByRole('button', { name: 'along' }))
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Nudge start later' }))
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1.05)
+  })
+
+  it('asks before discarding unsaved changes', async () => {
+    await openEditor()
+    await userEvent.click(screen.getByRole('button', { name: 'Sing' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Shift word later' }))
+    await userEvent.click(screen.getByRole('button', { name: /^Cancel$/i }))
+    expect(await screen.findByText(/Discard unsaved lyric edits\?/i)).toBeInTheDocument()
+  })
+})
+

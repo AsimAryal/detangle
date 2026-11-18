@@ -13,9 +13,20 @@ from app.archiver import ACTIVE_STATUSES
 from app.demucster import DemucsterError, RemoteLyricsJob
 from app.dependencies import CurrentUser, DbSession
 from app.lyrics_archiver import ARTIFACT_SPECS
+from app.lyrics_editor import (
+    LyricsEditError,
+    NothingToRevertError,
+    revert_to_original,
+    save_edited_document,
+)
 from app.models import JobStatus, LyricsExtraction, LyricsFile, Stem
 from app.routers.jobs import scoped_job
-from app.schemas import LyricsExtractionListOut, LyricsExtractionOut, LyricsOptionsIn
+from app.schemas import (
+    LyricsDocumentIn,
+    LyricsExtractionListOut,
+    LyricsExtractionOut,
+    LyricsOptionsIn,
+)
 
 router = APIRouter(prefix="/api/jobs/{job_id}/lyrics", tags=["lyrics"])
 
@@ -213,6 +224,54 @@ async def get_lyrics_file(
         filename=_download_filename(title, lfile.filename),
         content_disposition_type="attachment" if download else "inline",
     )
+
+
+def _require_ready(item: LyricsExtraction) -> None:
+    if item.status != JobStatus.READY:
+        raise HTTPException(
+            status_code=409, detail="Lyrics must be READY before editing"
+        )
+
+
+@router.put("/{lid}/document", response_model=LyricsExtractionOut)
+async def save_lyrics_document(
+    job_id: uuid.UUID,
+    lid: uuid.UUID,
+    body: LyricsDocumentIn,
+    request: Request,
+    user: CurrentUser,
+    db: DbSession,
+) -> LyricsExtractionOut:
+    _, item = await _scoped_lyrics(job_id, lid, user, db)
+    _require_ready(item)
+    try:
+        await save_edited_document(request.app.state.settings, db, item, body)
+    except LyricsEditError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=410, detail="Archived lyrics file is unavailable"
+        ) from exc
+    await db.refresh(item)
+    return LyricsExtractionOut.model_validate(item)
+
+
+@router.post("/{lid}/revert", response_model=LyricsExtractionOut)
+async def revert_lyrics_document(
+    job_id: uuid.UUID,
+    lid: uuid.UUID,
+    request: Request,
+    user: CurrentUser,
+    db: DbSession,
+) -> LyricsExtractionOut:
+    _, item = await _scoped_lyrics(job_id, lid, user, db)
+    _require_ready(item)
+    try:
+        await revert_to_original(request.app.state.settings, db, item)
+    except NothingToRevertError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await db.refresh(item)
+    return LyricsExtractionOut.model_validate(item)
 
 
 @router.delete("/{lid}", status_code=status.HTTP_204_NO_CONTENT)

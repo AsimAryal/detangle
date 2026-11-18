@@ -1,13 +1,22 @@
 import { useQuery } from '@tanstack/react-query'
-import { Maximize2, Minimize2, Mic2, Volume2 } from 'lucide-react'
+import { Maximize2, Minimize2, Mic2, Pencil, Timer, Volume2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
-import type { Job, LyricsLine, LyricsWord, Stem } from '../types'
+import {
+  findActiveLineIndex,
+  getCountdownBeat,
+  getPreRollDelay,
+  wordProgressPct,
+} from '../lib/lyricsEdit'
+import type { Job, Stem } from '../types'
+import LyricsEditorModal from './LyricsEditorModal'
 import { Button, ErrorState, Skeleton, formatStemLabel } from './ui'
 
 interface KaraokePlayerProps {
   job: Job
   lyricsId: string
+  version?: string | null
+  canEdit?: boolean
 }
 
 function stemMediaUrl(jobId: string, stem: Stem) {
@@ -26,30 +35,15 @@ function pickDefaultStem(stems: Stem[]): Stem | undefined {
   return stems[0]
 }
 
-function wordProgressPct(word: LyricsWord, currentTime: number): number {
-  if (currentTime <= word.start) return 0
-  if (currentTime >= word.end) return 100
-  const span = Math.max(0.02, word.end - word.start)
-  return Math.min(100, Math.max(0, ((currentTime - word.start) / span) * 100))
-}
-
-function findActiveLineIndex(lines: LyricsLine[], currentTime: number): number {
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]
-    if (currentTime >= line.start && currentTime <= line.end) {
-      return i
-    }
-    if (currentTime < line.start) {
-      return i > 0 && currentTime - lines[i - 1].end < 1.0 ? i - 1 : i
-    }
-  }
-  return lines.length > 0 ? lines.length - 1 : -1
-}
-
-export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
+export default function KaraokePlayer({
+  job,
+  lyricsId,
+  version = null,
+  canEdit = true,
+}: KaraokePlayerProps) {
   const docQuery = useQuery({
-    queryKey: ['lyrics-doc', job.id, lyricsId],
-    queryFn: () => api.lyricsDocument(job.id, lyricsId),
+    queryKey: ['lyrics-doc', job.id, lyricsId, version ?? ''],
+    queryFn: () => api.lyricsDocument(job.id, lyricsId, version),
   })
 
   const playableStems = useMemo(() => {
@@ -71,12 +65,17 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isEditorOpen, setIsEditorOpen] = useState(false)
+  const [countdownEnabled, setCountdownEnabled] = useState(true)
+  const [preRoll, setPreRoll] = useState<{ total: number } | null>(null)
+  const [preRollElapsed, setPreRollElapsed] = useState(0)
 
   const shellRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const lineRefs = useRef<Array<HTMLDivElement | null>>([])
   const pendingSeekRef = useRef<{ time: number; autoplay: boolean } | null>(null)
+  const preRollArmedRef = useRef(true)
 
   const activeStem =
     playableStems.find((s) => s.name === selectedStemName) || defaultStem
@@ -95,6 +94,28 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
   }, [isPlaying])
 
   useEffect(() => {
+    if (!preRoll) return undefined
+    const startedAt = performance.now()
+    let frameId = 0
+    const step = () => {
+      const elapsed = (performance.now() - startedAt) / 1000
+      if (elapsed >= preRoll.total) {
+        setPreRoll(null)
+        setPreRollElapsed(0)
+        const audio = audioRef.current
+        if (audio) {
+          void audio.play().catch(() => {})
+        }
+        return
+      }
+      setPreRollElapsed(elapsed)
+      frameId = window.requestAnimationFrame(step)
+    }
+    frameId = window.requestAnimationFrame(step)
+    return () => window.cancelAnimationFrame(frameId)
+  }, [preRoll])
+
+  useEffect(() => {
     const onFsChange = () => {
       setIsFullscreen(Boolean(document.fullscreenElement))
     }
@@ -102,8 +123,16 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
     return () => document.removeEventListener('fullscreenchange', onFsChange)
   }, [])
 
-  const lines = docQuery.data?.lines ?? []
+  const lines = useMemo(() => docQuery.data?.lines ?? [], [docQuery.data])
   const activeLineIndex = findActiveLineIndex(lines, currentTime)
+  const preRollLeft = preRoll ? Math.max(0, preRoll.total - preRollElapsed) : null
+  const countdownBeat = getCountdownBeat(
+    lines,
+    currentTime,
+    isPlaying,
+    preRollLeft,
+    countdownEnabled,
+  )
 
   useEffect(() => {
     if (activeLineIndex < 0) return
@@ -121,6 +150,9 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
   const seekTo = (seconds: number, autoplay = true) => {
     const audio = audioRef.current
     if (!audio) return
+    preRollArmedRef.current = false
+    setPreRoll(null)
+    setPreRollElapsed(0)
     audio.currentTime = Math.max(0, seconds)
     setCurrentTime(audio.currentTime)
     if (autoplay && audio.paused) {
@@ -131,9 +163,13 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
   const switchTrack = (nextStemName: string) => {
     if (nextStemName === activeStem?.name) return
     const audio = audioRef.current
+    setPreRoll(null)
+    setPreRollElapsed(0)
     if (audio) {
+      const time = audio.currentTime || currentTime
+      preRollArmedRef.current = time <= 0.05
       pendingSeekRef.current = {
-        time: audio.currentTime || currentTime,
+        time,
         autoplay: !audio.paused,
       }
     }
@@ -148,6 +184,44 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
     } else if (target.requestFullscreen) {
       await target.requestFullscreen()
     }
+  }
+
+  const openEditor = async () => {
+    setPreRoll(null)
+    setPreRollElapsed(0)
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause()
+    }
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {})
+    }
+    setIsEditorOpen(true)
+  }
+
+  const toggleCountdown = () => {
+    setCountdownEnabled((prev) => {
+      const next = !prev
+      if (!next && preRoll) {
+        setPreRoll(null)
+        setPreRollElapsed(0)
+        preRollArmedRef.current = false
+        void audioRef.current?.play().catch(() => {})
+      }
+      return next
+    })
+  }
+
+  const skipPreRoll = () => {
+    setPreRoll(null)
+    setPreRollElapsed(0)
+    preRollArmedRef.current = false
+    void audioRef.current?.play().catch(() => {})
+  }
+
+  const cancelPreRoll = () => {
+    setPreRoll(null)
+    setPreRollElapsed(0)
+    preRollArmedRef.current = true
   }
 
   if (docQuery.isLoading) {
@@ -183,13 +257,29 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
             </button>
           ))}
         </div>
-        <Button
-          variant="ghost"
-          icon={isFullscreen ? Minimize2 : Maximize2}
-          onClick={() => void toggleFullscreen()}
-        >
-          {isFullscreen ? 'Exit stage' : 'Stage mode'}
-        </Button>
+        <div className="karaoke-toolbar-actions">
+          <button
+            type="button"
+            className={`karaoke-track-pill karaoke-countdown-toggle${countdownEnabled ? ' active' : ''}`}
+            aria-pressed={countdownEnabled}
+            onClick={toggleCountdown}
+            title="Show 3-2-1 countdown before lyrics start"
+          >
+            <Timer aria-hidden="true" /> 3·2·1 Countdown
+          </button>
+          {canEdit && lines.length > 0 && (
+            <Button variant="ghost" icon={Pencil} onClick={() => void openEditor()}>
+              Edit lyrics
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            icon={isFullscreen ? Minimize2 : Maximize2}
+            onClick={() => void toggleFullscreen()}
+          >
+            {isFullscreen ? 'Exit stage' : 'Stage mode'}
+          </Button>
+        </div>
       </div>
 
       {activeStem && (
@@ -199,11 +289,32 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
           controls
           preload="metadata"
           src={stemMediaUrl(job.id, activeStem)}
-          onPlay={() => setIsPlaying(true)}
+          onPlay={(e) => {
+            const audio = e.currentTarget
+            const delay = getPreRollDelay(lines, countdownEnabled)
+            if (delay > 0 && audio.currentTime <= 0.05 && preRollArmedRef.current) {
+              preRollArmedRef.current = false
+              audio.pause()
+              if (audio.currentTime > 0) audio.currentTime = 0
+              setCurrentTime(0)
+              setPreRollElapsed(0)
+              setPreRoll({ total: delay })
+              return
+            }
+            setIsPlaying(true)
+          }}
           onPause={() => setIsPlaying(false)}
-          onEnded={() => setIsPlaying(false)}
+          onEnded={() => {
+            setIsPlaying(false)
+            preRollArmedRef.current = true
+          }}
           onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-          onSeeked={(e) => setCurrentTime(e.currentTarget.currentTime)}
+          onSeeked={(e) => {
+            setCurrentTime(e.currentTarget.currentTime)
+            if (!preRoll && e.currentTarget.paused) {
+              preRollArmedRef.current = e.currentTarget.currentTime <= 0.05
+            }
+          }}
           onLoadedMetadata={(e) => {
             const pending = pendingSeekRef.current
             if (pending) {
@@ -227,6 +338,34 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
         </div>
       ) : (
         <div ref={stageRef} className="karaoke-stage" aria-label="Synchronized lyrics">
+          {countdownBeat !== null && (
+            <div className="karaoke-countdown" role="status" aria-live="polite">
+              <span className="karaoke-countdown-label">Lyrics starting</span>
+              <div
+                className="karaoke-countdown-beats"
+                aria-label={`Countdown ${countdownBeat}`}
+              >
+                {([3, 2, 1] as const).map((beat) => (
+                  <span
+                    key={beat}
+                    className={`karaoke-countdown-beat${countdownBeat === beat ? ' active' : ''}${countdownBeat < beat ? ' done' : ''}`}
+                  >
+                    {beat}
+                  </span>
+                ))}
+              </div>
+              {preRoll && (
+                <div className="karaoke-countdown-actions">
+                  <button type="button" onClick={skipPreRoll}>
+                    Skip
+                  </button>
+                  <button type="button" onClick={cancelPreRoll}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {lines.map((line, lineIdx) => {
             const isActive = lineIdx === activeLineIndex
             const isPast = activeLineIndex !== -1 && lineIdx < activeLineIndex
@@ -269,6 +408,18 @@ export default function KaraokePlayer({ job, lyricsId }: KaraokePlayerProps) {
             )
           })}
         </div>
+      )}
+
+      {isEditorOpen && (
+        <LyricsEditorModal
+          job={job}
+          lyricsId={lyricsId}
+          initialLines={lines}
+          docDuration={docQuery.data.summary?.duration_seconds ?? 0}
+          playableStems={playableStems}
+          stemMediaUrl={stemMediaUrl}
+          onClose={() => setIsEditorOpen(false)}
+        />
       )}
     </div>
   )

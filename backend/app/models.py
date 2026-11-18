@@ -266,6 +266,7 @@ class LyricsExtraction(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     archive_attempts: Mapped[int] = mapped_column(Integer, default=0)
     remote_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 

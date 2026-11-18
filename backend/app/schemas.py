@@ -389,6 +389,7 @@ class LyricsExtractionOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    edited_at: datetime | None = None
     files: list[LyricsFileOut] = Field(default_factory=list)
 
     @field_validator("options", mode="before")
@@ -404,6 +405,24 @@ class LyricsExtractionOut(BaseModel):
 
 class LyricsExtractionListOut(BaseModel):
     items: list[LyricsExtractionOut]
+
+
+class LyricsWordIn(BaseModel):
+    word: str = Field(min_length=1, max_length=200)
+    start: float = Field(ge=0, le=86_400)
+    end: float = Field(ge=0, le=86_400)
+    score: float | None = None
+
+
+class LyricsLineIn(BaseModel):
+    text: str = Field(default="", max_length=2_000)
+    start: float | None = Field(default=None, ge=0, le=86_400)
+    end: float | None = Field(default=None, ge=0, le=86_400)
+    words: list[LyricsWordIn] = Field(default_factory=list, max_length=300)
+
+
+class LyricsDocumentIn(BaseModel):
+    lines: list[LyricsLineIn] = Field(max_length=5_000)
 
 
 class AppSettingsOut(BaseModel):

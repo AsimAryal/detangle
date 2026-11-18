@@ -181,6 +181,11 @@ export interface LyricsExtraction {
   created_at: string
   updated_at: string
   completed_at?: string | null
+  edited_at?: string | null
+}
+
+export interface LyricsDocumentEdit {
+  lines: Array<{ text: string; start: number; end: number; words: LyricsWord[] }>
 }
 
 export interface Paginated<T> {

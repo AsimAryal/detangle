@@ -5,6 +5,7 @@ import type {
   Job,
   JobStatus,
   LyricsDocument,
+  LyricsDocumentEdit,
   LyricsExtraction,
   LyricsFileKind,
   LyricsOptions,
@@ -115,8 +116,10 @@ export function lyricsFileUrl(
   lyricsId: string,
   kind: LyricsFileKind,
   download = false,
+  version?: string | null,
 ) {
-  return `/api/jobs/${encodeURIComponent(jobId)}/lyrics/${encodeURIComponent(lyricsId)}/files/${encodeURIComponent(kind)}?download=${download ? 1 : 0}`
+  const base = `/api/jobs/${encodeURIComponent(jobId)}/lyrics/${encodeURIComponent(lyricsId)}/files/${encodeURIComponent(kind)}?download=${download ? 1 : 0}`
+  return version ? `${base}&v=${encodeURIComponent(version)}` : base
 }
 
 export const api = {
@@ -199,8 +202,18 @@ export const api = {
       `/api/jobs/${encodeURIComponent(jobId)}/lyrics/${encodeURIComponent(lyricsId)}`,
       { method: 'DELETE' },
     ),
-  lyricsDocument: (jobId: string, lyricsId: string) =>
-    request<LyricsDocument>(lyricsFileUrl(jobId, lyricsId, 'json', false)),
+  lyricsDocument: (jobId: string, lyricsId: string, version?: string | null) =>
+    request<LyricsDocument>(lyricsFileUrl(jobId, lyricsId, 'json', false, version)),
+  saveLyricsDocument: (jobId: string, lyricsId: string, body: LyricsDocumentEdit) =>
+    request<LyricsExtraction>(
+      `/api/jobs/${encodeURIComponent(jobId)}/lyrics/${encodeURIComponent(lyricsId)}/document`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  revertLyrics: (jobId: string, lyricsId: string) =>
+    request<LyricsExtraction>(
+      `/api/jobs/${encodeURIComponent(jobId)}/lyrics/${encodeURIComponent(lyricsId)}/revert`,
+      { method: 'POST' },
+    ),
 
   overview: () => request<SystemOverview>('/api/system/overview'),
   models: async () => {

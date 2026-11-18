@@ -71,6 +71,7 @@ async def test_lyrics_lifecycle_archive_and_download(ctx: TestContext) -> None:
     assert fetched.status_code == 200
     ready = fetched.json()
     assert ready["status"] == "READY"
+    assert ready["edited_at"] is None
     assert ready["summary"]["word_count"] == 2
     assert ready["summary"]["llm_refined"] is True
     assert {f["kind"] for f in ready["files"]} == {"json", "lrc", "ass", "srt"}

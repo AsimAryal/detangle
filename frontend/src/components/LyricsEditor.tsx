@@ -208,6 +208,46 @@ export default function LyricsEditor({
         </div>
       )}
 
+      <details className="lyrics-editor-help">
+        <summary>Keyboard shortcuts</summary>
+        <table>
+          <tbody>
+            <tr>
+              <th>Space</th>
+              <td>Play / pause</td>
+            </tr>
+            <tr>
+              <th>[</th>
+              <td>Set selected word start to playhead</td>
+            </tr>
+            <tr>
+              <th>]</th>
+              <td>Set selected word end to playhead and advance</td>
+            </tr>
+            <tr>
+              <th>← / →</th>
+              <td>Select previous / next word</td>
+            </tr>
+            <tr>
+              <th>Alt+← / Alt+→</th>
+              <td>Shift selected word ±50 ms (+Shift for ±10 ms)</td>
+            </tr>
+            <tr>
+              <th>Enter</th>
+              <td>Play from selected word</td>
+            </tr>
+            <tr>
+              <th>Ctrl/Cmd+S</th>
+              <td>Save changes</td>
+            </tr>
+            <tr>
+              <th>Esc</th>
+              <td>Clear word selection</td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+
       {lines.map((line, lineIdx) => {
         const number = lineIdx + 1
         const lineIssues = issues.filter((i) => i.lineIdx === lineIdx)

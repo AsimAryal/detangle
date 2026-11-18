@@ -3,7 +3,12 @@ import { Maximize2, Minimize2, Mic2, Pencil, Save, Volume2, X } from 'lucide-rea
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import {
+  FINE_NUDGE_STEP,
+  NUDGE_STEP,
   isDirty,
+  nextWordRef,
+  nudgeWord,
+  setWordTime,
   toSavePayload,
   validateLines,
   type WordRef,
@@ -47,6 +52,13 @@ function wordProgressPct(word: LyricsWord, currentTime: number): number {
   if (currentTime >= word.end) return 100
   const span = Math.max(0.02, word.end - word.start)
   return Math.min(100, Math.max(0, ((currentTime - word.start) / span) * 100))
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 }
 
 function findActiveLineIndex(lines: LyricsLine[], currentTime: number): number {
@@ -183,6 +195,103 @@ export default function KaraokePlayer({
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [dirty])
+
+  useEffect(() => {
+    if (!isEditing || !draft) return undefined
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (confirmDiscard) return
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && !e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        if (canSave) save.mutate(draft)
+        return
+      }
+      if (isEditableTarget(e.target)) return
+
+      const playhead = audioRef.current?.currentTime ?? 0
+      const selectedWord = selected
+        ? draft[selected.lineIdx]?.words[selected.wordIdx]
+        : undefined
+
+      if (e.key === ' ' && !mod && !e.altKey) {
+        e.preventDefault()
+        const audio = audioRef.current
+        if (!audio) return
+        if (audio.paused) {
+          void audio.play().catch(() => {})
+        } else {
+          audio.pause()
+        }
+        return
+      }
+
+      if ((e.key === '[' || e.key === ']') && !mod && !e.altKey) {
+        e.preventDefault()
+        if (!selected || !selectedWord) {
+          const first = nextWordRef(draft, null, 1)
+          if (first) setSelected(first)
+          return
+        }
+        if (e.key === '[') {
+          setDraft(setWordTime(draft, selected, 'start', playhead))
+        } else {
+          const next = setWordTime(draft, selected, 'end', playhead)
+          setDraft(next)
+          setSelected(nextWordRef(next, selected, 1))
+        }
+        return
+      }
+
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !mod) {
+        const dir: 1 | -1 = e.key === 'ArrowRight' ? 1 : -1
+        if (e.altKey) {
+          e.preventDefault()
+          if (!selected || !selectedWord) return
+          const step = e.shiftKey ? FINE_NUDGE_STEP : NUDGE_STEP
+          setDraft(nudgeWord(draft, selected, 'both', dir * step))
+          return
+        }
+        if (!e.shiftKey) {
+          e.preventDefault()
+          if (!selected) {
+            const first = nextWordRef(draft, null, 1)
+            if (first) setSelected(first)
+          } else {
+            setSelected(nextWordRef(draft, selected, dir))
+          }
+        }
+        return
+      }
+
+      if (e.key === 'Enter' && !mod && !e.altKey && !e.shiftKey) {
+        if (
+          e.target instanceof HTMLElement &&
+          (e.target.tagName === 'SUMMARY' ||
+            (e.target.tagName === 'BUTTON' &&
+              !e.target.classList.contains('lyrics-editor-word')))
+        ) {
+          return
+        }
+        if (!selectedWord) return
+        e.preventDefault()
+        const audio = audioRef.current
+        if (!audio) return
+        audio.currentTime = Math.max(0, selectedWord.start)
+        setCurrentTime(audio.currentTime)
+        if (audio.paused) {
+          void audio.play().catch(() => {})
+        }
+        return
+      }
+
+      if (e.key === 'Escape' && !mod && !e.altKey && selected) {
+        e.preventDefault()
+        setSelected(null)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isEditing, draft, selected, canSave, confirmDiscard, save])
 
   useEffect(() => {
     if (activeLineIndex < 0) return

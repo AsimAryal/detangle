@@ -295,5 +295,60 @@ describe('KaraokePlayer edit mode', () => {
     await userEvent.click(screen.getByRole('button', { name: /^Cancel$/i }))
     expect(await screen.findByText(/Discard unsaved lyric edits\?/i)).toBeInTheDocument()
   })
+
+  it('stamps word end with ] and advances selection, then shifts with Alt+ArrowRight', async () => {
+    const { container } = await openEditor()
+    const audio = container.querySelector('audio') as HTMLAudioElement
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sing' }))
+    audio.currentTime = 0.95
+    fireEvent.keyDown(window, { key: ']' })
+
+    // Selection moved to 'along' (start 1.000) and 'Sing' end became 0.95
+    expect(screen.getByRole('button', { name: 'along' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(1)
+
+    // Verify Sing end was updated to 0.950 by selecting it back
+    fireEvent.keyDown(window, { key: 'ArrowLeft' })
+    expect(screen.getByRole('button', { name: 'Sing' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Word end (seconds)')).toHaveValue(0.95)
+
+    // Alt+ArrowRight shifts selected word ('Sing') by +0.05
+    fireEvent.keyDown(window, { key: 'ArrowRight', altKey: true })
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(0.55)
+    expect(screen.getByLabelText('Word end (seconds)')).toHaveValue(1)
+  })
+
+  it('supports [, Space, Esc, and Ctrl+S shortcuts and ignores editing keys inside inputs', async () => {
+    const saveSpy = vi.spyOn(api, 'saveLyricsDocument').mockResolvedValue(savedExtraction)
+    const { container } = await openEditor()
+    const audio = container.querySelector('audio') as HTMLAudioElement
+
+    // Space toggles play/pause
+    Object.defineProperty(audio, 'paused', { value: true, configurable: true })
+    fireEvent.keyDown(window, { key: ' ' })
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
+
+    // Pressing [ when nothing is selected selects the first word without mutating it
+    fireEvent.keyDown(window, { key: '[' })
+    expect(screen.getByRole('button', { name: 'Sing' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(0.5)
+
+    // Pressing ] inside an input is ignored
+    const lineInput = screen.getByLabelText('Line 1 text')
+    audio.currentTime = 0.8
+    fireEvent.keyDown(lineInput, { key: ']' })
+    expect(screen.getByRole('button', { name: 'Sing' })).toHaveAttribute('aria-pressed', 'true')
+
+    // Pressing [ outside inputs sets selected word start to playhead
+    fireEvent.keyDown(window, { key: '[' })
+    expect(screen.getByLabelText('Word start (seconds)')).toHaveValue(0.8)
+
+    // Ctrl+S saves even when triggered from inside an input
+    fireEvent.keyDown(lineInput, { key: 's', ctrlKey: true })
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledTimes(1)
+    })
+  })
 })
 
